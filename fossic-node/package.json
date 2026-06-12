@@ -1,0 +1,43 @@
+{
+  "name": "fossic",
+  "version": "0.1.0",
+  "description": "Local-first event sourcing library — Node.js binding",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "fossic.node",
+    "npm/"
+  ],
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "napi": {
+    "name": "fossic",
+    "triples": {
+      "defaults": true,
+      "additional": []
+    }
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3",
+    "@types/node": "latest",
+    "typescript": "^5",
+    "vitest": "^3"
+  },
+  "license": "MIT OR Apache-2.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "fossic-linux-x64-gnu": "*",
+    "fossic-linux-arm64-gnu": "*",
+    "fossic-darwin-x64": "*",
+    "fossic-darwin-arm64": "*",
+    "fossic-win32-x64-msvc": "*"
+  }
+}

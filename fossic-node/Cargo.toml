@@ -1,0 +1,28 @@
+[package]
+name = "fossic-node"
+version = "0.1.0"
+edition = "2021"
+description = "napi-rs Node.js bindings for fossic"
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = []
+
+[dependencies]
+fossic            = { workspace = true }
+napi              = { version = "2", features = ["napi6", "async", "serde-json"] }
+napi-derive       = "2"
+crossbeam-channel = { workspace = true }
+serde             = { workspace = true }
+serde_json        = { workspace = true }
+tokio             = { version = "1", features = ["rt", "macros"] }
+shellexpand       = "3"
+
+[build-dependencies]
+napi-build = "2"
+
+[dev-dependencies]
+tempfile = { workspace = true }
