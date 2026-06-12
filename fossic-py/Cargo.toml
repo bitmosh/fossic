@@ -1,0 +1,18 @@
+[package]
+name = "fossic-py"
+version = "0.1.0"
+edition = "2021"
+description = "Python bindings for the fossic event sourcing library"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "_fossic"
+crate-type = ["cdylib"]
+
+[dependencies]
+fossic            = { workspace = true }
+pyo3              = { version = "0.29", features = ["extension-module"] }
+crossbeam-channel = { workspace = true }
+serde_json        = { workspace = true }
+rmp-serde         = { workspace = true }
+shellexpand       = "3"

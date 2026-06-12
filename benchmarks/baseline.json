@@ -1,0 +1,28 @@
+{
+  "_note": "Baseline recorded on Linux x86_64, SQLite bundled, WAL mode, tmpfs. Update with scripts/consumer-profile-test.sh --update-baseline after a clean release build.",
+  "scenario_a_1kb": {
+    "description": "1 KB payload, 1000 sequential appends, WAL checkpoint",
+    "p50_total_us": 310,
+    "p99_total_us": 420
+  },
+  "scenario_b_10kb": {
+    "description": "10 KB payload, 1000 sequential appends, WAL checkpoint",
+    "p50_total_us": 2800,
+    "p99_total_us": 3900
+  },
+  "scenario_c_40kb": {
+    "description": "40 KB payload, 1000 sequential appends, WAL checkpoint",
+    "p50_total_us": 11200,
+    "p99_total_us": 13380
+  },
+  "scenario_d_read_aggregate": {
+    "description": "Aggregate over 10 000 events in one stream, no payload filter",
+    "p50_total_us": 8400,
+    "p99_total_us": 11000
+  },
+  "scenario_e_causation_walk": {
+    "description": "walk_causation forward, chain depth 20, 1000 leaf nodes",
+    "p50_total_us": 4200,
+    "p99_total_us": 6800
+  }
+}
