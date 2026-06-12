@@ -1,0 +1,187 @@
+{
+  "version": "fossic-cce-v1",
+  "note": "Expected hex values are the canonical CCE output. All CCE implementations must pass these vectors. See CCE_SPEC.md §5.",
+  "encode_value_vectors": [
+    {
+      "id": "null_1",
+      "description": "null value: tag 0x00, no body",
+      "input": { "type": "json", "value": null },
+      "expected_hex": "00"
+    },
+    {
+      "id": "bool_true",
+      "description": "boolean true: tag 0x01, body 0x01",
+      "input": { "type": "json", "value": true },
+      "expected_hex": "0101"
+    },
+    {
+      "id": "bool_false",
+      "description": "boolean false: tag 0x01, body 0x00",
+      "input": { "type": "json", "value": false },
+      "expected_hex": "0100"
+    },
+    {
+      "id": "int_zero",
+      "description": "integer 0 as i64 LE",
+      "input": { "type": "json", "value": 0 },
+      "expected_hex": "020000000000000000"
+    },
+    {
+      "id": "int_one",
+      "description": "integer 1 as i64 LE",
+      "input": { "type": "json", "value": 1 },
+      "expected_hex": "020100000000000000"
+    },
+    {
+      "id": "int_minus_one",
+      "description": "integer -1 as i64 LE (all 0xFF bytes)",
+      "input": { "type": "json", "value": -1 },
+      "expected_hex": "02ffffffffffffffff"
+    },
+    {
+      "id": "int_127",
+      "description": "integer 127 as i64 LE",
+      "input": { "type": "json", "value": 127 },
+      "expected_hex": "027f00000000000000"
+    },
+    {
+      "id": "int_256",
+      "description": "integer 256 as i64 LE",
+      "input": { "type": "json", "value": 256 },
+      "expected_hex": "020001000000000000"
+    },
+    {
+      "id": "int_i64_min",
+      "description": "i64::MIN = -9223372036854775808; LE bytes are 00 00 00 00 00 00 00 80",
+      "input": { "type": "i64_str", "value": "-9223372036854775808" },
+      "expected_hex": "020000000000000080"
+    },
+    {
+      "id": "float_pos_zero",
+      "description": "+0.0: all zero bytes",
+      "input": { "type": "f64_bits", "bits": "0000000000000000" },
+      "expected_hex": "030000000000000000"
+    },
+    {
+      "id": "float_neg_zero_canonical",
+      "description": "-0.0 MUST encode identically to +0.0 (canonical zero)",
+      "input": { "type": "f64_bits", "bits": "8000000000000000" },
+      "expected_hex": "030000000000000000"
+    },
+    {
+      "id": "float_one",
+      "description": "1.0 = 0x3FF0000000000000; LE = 00 00 00 00 00 00 F0 3F",
+      "input": { "type": "f64_bits", "bits": "3ff0000000000000" },
+      "expected_hex": "03000000000000f03f"
+    },
+    {
+      "id": "float_one_point_five",
+      "description": "1.5 = 0x3FF8000000000000; LE = 00 00 00 00 00 00 F8 3F",
+      "input": { "type": "f64_bits", "bits": "3ff8000000000000" },
+      "expected_hex": "03000000000000f83f"
+    },
+    {
+      "id": "float_nan_canonical",
+      "description": "Canonical quiet NaN: 0x7FF8000000000000; any NaN input maps here",
+      "input": { "type": "f64_bits", "bits": "7ff8000000000000" },
+      "expected_hex": "03000000000000f87f"
+    },
+    {
+      "id": "float_nan_signaling",
+      "description": "Signaling NaN (0x7FF0000000000001) MUST encode as canonical quiet NaN",
+      "input": { "type": "f64_bits", "bits": "7ff0000000000001" },
+      "expected_hex": "03000000000000f87f"
+    },
+    {
+      "id": "float_pos_inf",
+      "description": "+Inf = 0x7FF0000000000000; preserved as-is per spec §3.3",
+      "input": { "type": "f64_bits", "bits": "7ff0000000000000" },
+      "expected_hex": "03000000000000f07f"
+    },
+    {
+      "id": "float_neg_inf",
+      "description": "-Inf = 0xFFF0000000000000; preserved as-is per spec §3.3",
+      "input": { "type": "f64_bits", "bits": "fff0000000000000" },
+      "expected_hex": "03000000000000f0ff"
+    },
+    {
+      "id": "string_empty",
+      "description": "empty string: tag 0x04 + u32_LE(0)",
+      "input": { "type": "json", "value": "" },
+      "expected_hex": "0400000000"
+    },
+    {
+      "id": "string_hello",
+      "description": "'hello' (5 ASCII bytes)",
+      "input": { "type": "json", "value": "hello" },
+      "expected_hex": "040500000068656c6c6f"
+    },
+    {
+      "id": "string_a",
+      "description": "single character 'a'",
+      "input": { "type": "json", "value": "a" },
+      "expected_hex": "040100000061"
+    },
+    {
+      "id": "string_nfc_nfd_same",
+      "description": "NFC 'café' (U+00E9) and NFD 'cafe\\u0301' must produce identical output",
+      "input": { "type": "json", "value": "café" },
+      "expected_hex": "0405000000636166c3a9"
+    },
+    {
+      "id": "bytes_empty",
+      "description": "empty bytes: tag 0x05 + u32_LE(0)",
+      "input": { "type": "bytes", "data": "" },
+      "expected_hex": "0500000000"
+    },
+    {
+      "id": "bytes_three",
+      "description": "bytes [0x01, 0x02, 0x03]",
+      "input": { "type": "bytes", "data": "010203" },
+      "expected_hex": "0503000000010203"
+    },
+    {
+      "id": "array_empty",
+      "description": "empty array: tag 0x06 + u32_LE(0)",
+      "input": { "type": "json", "value": [] },
+      "expected_hex": "0600000000"
+    },
+    {
+      "id": "array_null",
+      "description": "[null]",
+      "input": { "type": "json", "value": [null] },
+      "expected_hex": "060100000000"
+    },
+    {
+      "id": "array_one_two",
+      "description": "[1, 2]",
+      "input": { "type": "json", "value": [1, 2] },
+      "expected_hex": "0602000000020100000000000000020200000000000000"
+    },
+    {
+      "id": "map_empty",
+      "description": "empty map: tag 0x07 + u32_LE(0)",
+      "input": { "type": "json", "value": {} },
+      "expected_hex": "0700000000"
+    },
+    {
+      "id": "map_a_one",
+      "description": "{\"a\": 1}: key CCE-encoded, then value",
+      "input": { "type": "json", "value": {"a": 1} },
+      "expected_hex": "0701000000040100000061020100000000000000"
+    },
+    {
+      "id": "map_sorted",
+      "description": "{\"b\": 2, \"a\": 1} must sort to same output as {\"a\": 1, \"b\": 2}",
+      "input": { "type": "json", "value": {"b": 2, "a": 1} },
+      "expected_hex": "0702000000040100000061020100000000000000040100000062020200000000000000"
+    },
+    {
+      "id": "nested_map_array",
+      "description": "{\"items\": [1, 2], \"count\": 2}",
+      "input": { "type": "json", "value": {"items": [1, 2], "count": 2} },
+      "expected_hex": null,
+      "note": "Expected hex to be filled after first passing run (snapshot test)"
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+# Rust
+target/
+**/*.rs.bk
+
+# Cargo.lock is committed for binary-producing crates (which fossic-py, fossic-node,
+# and fossic-tauri are via their bindings). Standard modern Rust practice.
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.tox/
+.nox/
+.venv/
+venv/
+ENV/
+env/
+
+# maturin
+fossic-py/target/
+fossic-py/python/fossic/*.so
+fossic-py/python/fossic/*.pyd
+fossic-py/python/fossic/*.dylib
+
+# Node.js / napi-rs
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnp.*
+*.tsbuildinfo
+.npm/
+.yarn-integrity
+
+# napi-rs compiled native addons (the .node binary is built per-platform;
+# checking it in would be a 200MB+ headache)
+fossic-node/*.node
+fossic-node/npm/**/*.node
+fossic-node/index.js
+fossic-node/index.d.ts.bak
+
+# package-lock.json IS committed — it's the npm equivalent of Cargo.lock
+
+# SQLite runtime artifacts (these appear next to .db files during normal use)
+*.db-wal
+*.db-shm
+*.db-journal
+
+# Test artifacts and local data
+/test-output/
+/tmp/
+**/test-fossic-*.db
+**/test-fossic-*/
+
+# Benchmark outputs (the script lives in repo; outputs do not)
+benchmarks/results/
+!benchmarks/results/.gitkeep
+benchmarks/baseline.json.bak
+
+# Documentation builds
+docs/book/
+docs/target/
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.vim/
+*.sublime-project
+*.sublime-workspace
+.fleet/
+
+# Direnv, asdf, etc
+.envrc.local
+.tool-versions.local
+
+# Environment files (don't commit secrets)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# CI artifacts that occasionally leak into the working tree
+.github/workflows/*.bak
