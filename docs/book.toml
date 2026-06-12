@@ -1,0 +1,18 @@
+[book]
+title       = "fossic"
+authors     = ["Lattica"]
+description = "Local-first event sourcing library with content-addressed event identity"
+src         = "src"
+
+[output.html]
+default-theme         = "navy"
+preferred-dark-theme  = "ayu"
+no-section-label      = false
+fold.enable           = true
+fold.level            = 1
+
+[output.html.search]
+enable = true
+
+[build]
+build-dir = "book"

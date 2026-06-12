@@ -1,0 +1,91 @@
+name: Bench Validation
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Run every Monday at 03:00 UTC (before business hours).
+    - cron: "0 3 * * 1"
+
+permissions:
+  contents: read
+
+env:
+  # p99 regression threshold: fail if new p99 exceeds baseline by more than 10%.
+  REGRESSION_THRESHOLD_PCT: "10"
+  BASELINE_FILE: "benchmarks/baseline.json"
+
+jobs:
+  bench:
+    name: SQLite WAL payload sweep (40 KB)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fossic -> fossic/target
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install Python deps
+        run: pip install --require-hashes -r benchmarks/requirements-bench.txt 2>/dev/null || pip install psutil
+
+      - name: Build fossic (release mode for accurate timings)
+        working-directory: fossic
+        run: cargo build --release
+
+      - name: Run payload sweep
+        run: |
+          python benchmarks/sqlite_wal_payload_sweep.py \
+            --output benchmarks/results/bench_run.json \
+            --scenario-c-only
+        env:
+          FOSSIC_LIB_PATH: fossic/target/release/libfossic.so
+
+      - name: Check p99 regression
+        id: regression-check
+        run: |
+          python - <<'EOF'
+          import json, sys, os
+
+          baseline_path = os.environ["BASELINE_FILE"]
+          run_path = "benchmarks/results/bench_run.json"
+
+          with open(baseline_path) as f:
+              baseline = json.load(f)
+          with open(run_path) as f:
+              run = json.load(f)
+
+          threshold = float(os.environ["REGRESSION_THRESHOLD_PCT"]) / 100
+
+          failures = []
+          for scenario, bdata in baseline.items():
+              rdata = run.get(scenario)
+              if rdata is None:
+                  print(f"WARNING: scenario '{scenario}' missing from run output, skipping")
+                  continue
+              baseline_p99 = bdata["p99_total_us"]
+              run_p99 = rdata["p99_total_us"]
+              delta_pct = (run_p99 - baseline_p99) / baseline_p99
+              marker = "PASS" if delta_pct <= threshold else "FAIL"
+              print(f"[{marker}] {scenario}: p99 {run_p99:.0f} µs vs baseline {baseline_p99:.0f} µs ({delta_pct:+.1%})")
+              if delta_pct > threshold:
+                  failures.append(scenario)
+
+          if failures:
+              print(f"\nRegression detected in: {failures}")
+              sys.exit(1)
+          print("\nAll scenarios within threshold.")
+          EOF
+        env:
+          BASELINE_FILE: ${{ env.BASELINE_FILE }}
+          REGRESSION_THRESHOLD_PCT: ${{ env.REGRESSION_THRESHOLD_PCT }}
+
+      - name: Upload bench report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-report-${{ github.run_id }}
+          path: benchmarks/results/bench_run.json
+          retention-days: 90

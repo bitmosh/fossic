@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # ── Rust: workspace check ─────────────────────────────────────────────────────
+  workspace-check:
+    name: Workspace Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - name: cargo check --workspace
+        run: cargo check --workspace
+
+  # ── Rust: test ────────────────────────────────────────────────────────────────
+  test:
+    name: Test (fossic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - name: cargo test --all-features
+        run: cargo test --all-features
+
+  # ── Rust: CCE vectors (canonical content encoding determinism) ────────────────
+  cce-vectors:
+    name: CCE Vectors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - name: cargo test --test cce_vectors
+        run: cargo test --test cce_vectors -- --nocapture
+
+  # ── Rust: clippy ──────────────────────────────────────────────────────────────
+  clippy:
+    name: Clippy (fossic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - name: cargo clippy -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  # ── Rust: fmt ─────────────────────────────────────────────────────────────────
+  fmt:
+    name: Format (fossic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: cargo fmt --check
+        run: cargo fmt --check
+
+  # ── Python: pytest (fossic-py) ────────────────────────────────────────────────
+  python-tests:
+    name: Python Tests (fossic-py)
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('fossic-py/pyproject.toml') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install maturin
+        run: pip install maturin
+      - name: Develop install
+        working-directory: fossic-py
+        run: maturin develop
+      - name: pytest
+        working-directory: fossic-py
+        run: pytest tests/ -v
+
+  # ── Node: vitest (fossic-node) ────────────────────────────────────────────────
+  node-tests:
+    name: Node Tests (fossic-node)
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('fossic-node/package.json') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: fossic-node/package-lock.json
+      - name: Install dependencies
+        working-directory: fossic-node
+        run: npm ci
+      - name: Build
+        working-directory: fossic-node
+        run: npm run build
+      - name: Test
+        working-directory: fossic-node
+        run: npm test

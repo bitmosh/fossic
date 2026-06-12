@@ -1,0 +1,397 @@
+name: Release
+
+# Triggered by version tags: v0.1.0, v1.2.3, etc.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+# Minimal top-level permissions; each job declares what it needs.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── 1. Verify ─────────────────────────────────────────────────────────────────
+  # Ensures the tag matches Cargo.toml version and the codebase is clean.
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fossic -> fossic/target
+      - name: Tag ↔ Cargo.toml version check
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          CRATE_VER=$(grep '^version' fossic/Cargo.toml | head -1 | cut -d'"' -f2)
+          if [ "$TAG" != "$CRATE_VER" ]; then
+            echo "::error::Tag ($TAG) ≠ Cargo.toml version ($CRATE_VER). Bump the crate version before tagging."
+            exit 1
+          fi
+          echo "Version: $CRATE_VER"
+      - name: clippy -D warnings
+        working-directory: fossic
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: fmt --check
+        working-directory: fossic
+        run: cargo fmt --check
+      - name: cargo test --all-features
+        working-directory: fossic
+        run: cargo test --all-features
+      - name: CCE vectors
+        working-directory: fossic
+        run: cargo test --test cce_vectors
+
+  # ── 2. Build Rust crate ───────────────────────────────────────────────────────
+  build-crate:
+    name: Build crate
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fossic -> fossic/target
+      - name: Publish dry-run
+        working-directory: fossic
+        run: cargo publish --dry-run
+      - name: Package crate
+        working-directory: fossic
+        run: cargo package --no-verify
+      - name: Collect artifact
+        run: |
+          mkdir -p dist/crate
+          cp fossic/target/package/*.crate dist/crate/
+      - name: Compute SHA-256 hashes (input to SLSA generator)
+        id: hash
+        run: |
+          cd dist/crate
+          hashes=$(sha256sum ./*.crate | base64 -w0)
+          echo "hashes=$hashes" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crate
+          path: dist/crate/
+          if-no-files-found: error
+
+  # ── 3. Build Python wheels ────────────────────────────────────────────────────
+  # Skipped until fossic-py exists. Each OS runner builds wheels for its
+  # platform; cibuildwheel handles Python version matrix (3.11/3.12/3.13).
+  # Linux builds both x86_64 and aarch64 via QEMU.
+  build-wheels:
+    name: Wheels (${{ matrix.os }})
+    needs: verify
+    if: ${{ hashFiles('fossic-py/pyproject.toml') != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: wheels-linux
+          - os: macos-13          # Intel; arm64 cross-compile via macos-14
+            artifact: wheels-macos-x64
+          - os: macos-14          # Apple Silicon
+            artifact: wheels-macos-arm64
+          - os: windows-latest
+            artifact: wheels-windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Set up QEMU (Linux aarch64 cross-compile)
+        if: runner.os == 'Linux'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - uses: dtolnay/rust-toolchain@stable
+        if: runner.os != 'Linux'
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.22.0
+        with:
+          package-dir: fossic-py
+          output-dir: dist/wheels
+          config-file: .cibuildwheel.toml
+      - name: Smoke test each wheel
+        shell: bash
+        run: |
+          for whl in dist/wheels/*.whl; do
+            echo "--- smoke: $whl"
+            pip install --force-reinstall "$whl" --quiet
+            python - <<'PYEOF'
+          import fossic, tempfile, os
+          with tempfile.TemporaryDirectory() as d:
+              store = fossic.Store.open(os.path.join(d, "smoke.db"))
+              store.declare_stream("smoke/test", declared_by="ci")
+              eid = store.append(fossic.Append(
+                  stream_id="smoke/test", event_type="SmokeEvent",
+                  type_version=1, payload={"ok": True}))
+              evts = store.read_range(fossic.ReadQuery(stream_id="smoke/test", branch="main"))
+              assert len(evts) == 1, f"expected 1 event, got {len(evts)}"
+              store.close()
+          print("smoke OK")
+          PYEOF
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/wheels/
+          if-no-files-found: error
+
+  # ── 4. Build Node.js prebuilts ────────────────────────────────────────────────
+  # Skipped until fossic-node exists. Each target produces one .node addon file.
+  build-node:
+    name: Node prebuilt (${{ matrix.artifact-name }})
+    needs: verify
+    if: ${{ hashFiles('fossic-node/package.json') != '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact-name: fossic-linux-x64-gnu
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact-name: fossic-linux-arm64-gnu
+          - target: aarch64-apple-darwin
+            os: macos-14
+            artifact-name: fossic-darwin-arm64
+          - target: x86_64-apple-darwin
+            os: macos-13
+            artifact-name: fossic-darwin-x64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact-name: fossic-win32-x64-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fossic-node -> fossic-node/target
+      - name: Configure aarch64-linux cross-compile toolchain
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: fossic-node/package-lock.json
+      - name: Install @napi-rs/cli
+        working-directory: fossic-node
+        run: npm ci
+      - name: Build prebuilt addon
+        working-directory: fossic-node
+        run: npx @napi-rs/cli build --platform --target ${{ matrix.target }} --release
+      - name: Smoke test (native only, skips aarch64-linux cross-build)
+        if: matrix.target != 'aarch64-unknown-linux-gnu'
+        working-directory: fossic-node
+        shell: bash
+        run: |
+          node << 'SMOKE_EOF'
+          ;(async () => {
+            const { Store } = require('.')
+            const os = require('os'), path = require('path'), fs = require('fs')
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fossic-'))
+            const store = Store.open(path.join(dir, 'smoke.db'))
+            await store.declareStream('smoke/test', 'ci')
+            await store.append({ streamId: 'smoke/test', eventType: 'SmokeEvent', typeVersion: 1, payload: { ok: true } })
+            const evts = await store.readRange({ streamId: 'smoke/test', branch: 'main' })
+            if (evts.length !== 1) throw new Error('expected 1 event, got ' + evts.length)
+            store.close()
+            console.log('smoke OK')
+          })().catch(e => { console.error(e); process.exit(1) })
+          SMOKE_EOF
+      - name: Collect artifact
+        shell: bash
+        run: |
+          mkdir -p dist/node
+          cp fossic-node/${{ matrix.artifact-name }}.node dist/node/ || \
+          cp fossic-node/*.node dist/node/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-${{ matrix.artifact-name }}
+          path: dist/node/
+          if-no-files-found: error
+
+  # ── 5. SLSA Level 3 provenance ────────────────────────────────────────────────
+  # Runs the sigstore-backed SLSA generator workflow in its own trusted execution
+  # context. Attests the crate artifact. Extend base64-subjects when wheel/node
+  # hashes are available (combine hashes with a collect-hashes job).
+  provenance:
+    name: SLSA provenance
+    needs: [build-crate]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.0.0
+    with:
+      base64-subjects: "${{ needs.build-crate.outputs.hashes }}"
+      upload-assets: true
+
+  # ── 6. Publish: crates.io ────────────────────────────────────────────────────
+  publish-crates:
+    name: Publish → crates.io
+    needs: [provenance]
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fossic -> fossic/target
+      - name: cargo publish
+        working-directory: fossic
+        run: cargo publish --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
+
+  # ── 7. Publish: PyPI ─────────────────────────────────────────────────────────
+  publish-python:
+    name: Publish → PyPI
+    needs: [publish-crates]
+    if: ${{ hashFiles('fossic-py/pyproject.toml') != '' }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: dist/wheels
+          merge-multiple: true
+      - name: Publish via twine
+        run: |
+          pip install twine
+          twine upload dist/wheels/*.whl --non-interactive --skip-existing
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+
+  # ── 8. Publish: npm ───────────────────────────────────────────────────────────
+  publish-node:
+    name: Publish → npm
+    needs: [publish-python]
+    if: |
+      always() &&
+      needs.publish-python.result != 'failure' &&
+      hashFiles('fossic-node/package.json') != ''
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: node-*
+          path: fossic-node/artifacts
+          merge-multiple: true
+      - name: Install CLI and distribute prebuilts
+        working-directory: fossic-node
+        run: |
+          npm ci
+          npx @napi-rs/cli artifacts --input artifacts --output .
+      - name: Publish main package
+        working-directory: fossic-node
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish platform subpackages
+        working-directory: fossic-node
+        shell: bash
+        run: |
+          for pkg_dir in npm/*/; do
+            echo "Publishing $pkg_dir"
+            npm publish "$pkg_dir" --access public
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ── 9. GitHub Release ─────────────────────────────────────────────────────────
+  github-release:
+    name: GitHub Release
+    needs: [publish-crates]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: crate
+          path: dist/crate
+      - name: Create release with .crate artifact
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "fossic $GITHUB_REF_NAME" \
+            --generate-notes \
+            dist/crate/*.crate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 10. Deploy docs to GitHub Pages (optional, non-blocking) ─────────────────
+  docs:
+    name: Deploy docs
+    needs: [github-release]
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mdBook
+        run: |
+          set -e
+          MDBOOK_VERSION="0.4.40"
+          curl -fsSL "https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C /tmp
+          sudo mv /tmp/mdbook /usr/local/bin/mdbook
+      - name: Build rustdoc
+        working-directory: fossic
+        run: cargo doc --no-deps --all-features
+      - name: Build mdBook site
+        run: mdbook build docs
+      - name: Copy rustdoc into site
+        run: |
+          mkdir -p docs/book/api
+          cp -r fossic/target/doc/* docs/book/api/
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/book
+      - name: Deploy to Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

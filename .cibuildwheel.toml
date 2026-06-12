@@ -1,0 +1,48 @@
+# cibuildwheel configuration for fossic-py
+# 15 wheels: Python 3.11/3.12/3.13 × 5 platforms
+# Run via: cibuildwheel --config-file .cibuildwheel.toml fossic-py/
+
+# Build CPython 3.11–3.13 only; skip PyPy and musl.
+build = ["cp311-*", "cp312-*", "cp313-*"]
+skip  = ["pp*", "*-musllinux_*"]
+
+# Smoke test: open a store, append one event, read it back.
+test-command = """python -c "
+import fossic, tempfile, os
+with tempfile.TemporaryDirectory() as d:
+    store = fossic.Store.open(os.path.join(d, 'ci.db'))
+    store.declare_stream('ci/test', declared_by='cibuildwheel')
+    eid = store.append(fossic.Append(
+        stream_id='ci/test', event_type='CISmoke',
+        type_version=1, payload={'ok': True}))
+    events = store.read_range(fossic.ReadQuery(stream_id='ci/test', branch='main'))
+    assert len(events) == 1, 'expected 1 event, got ' + str(len(events))
+    store.close()
+    print('smoke OK:', eid)
+" """
+
+# ── Linux ─────────────────────────────────────────────────────────────────────
+[linux]
+archs = ["x86_64", "aarch64"]
+
+# manylinux_2_28 (glibc 2.28+) for broad distro compatibility.
+manylinux-x86_64-image  = "quay.io/pypa/manylinux_2_28_x86_64"
+manylinux-aarch64-image = "quay.io/pypa/manylinux_2_28_aarch64"
+
+# Rust is not in the manylinux image; install a minimal stable toolchain once
+# per platform (before-all runs once, not per Python version).
+before-all = "curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain stable --profile minimal"
+
+[linux.environment]
+PATH = "/root/.cargo/bin:$PATH"
+HOME = "/root"
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+[macos]
+archs = ["arm64", "x86_64"]
+# Deployment target matches the wheel platform tag (macosx_12_0_*).
+deployment-target = "12.0"
+
+# ── Windows ───────────────────────────────────────────────────────────────────
+[windows]
+archs = ["AMD64"]
