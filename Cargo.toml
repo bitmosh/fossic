@@ -1,0 +1,103 @@
+[workspace]
+members = [".", "fossic-py", "fossic-node", "crates/fossic-tauri"]
+resolver = "2"
+
+[workspace.dependencies]
+fossic            = { path = "." }
+serde             = { version = "1", features = ["derive"] }
+serde_json        = "1"
+rmp-serde         = "1"
+crossbeam-channel = "0.5"
+parking_lot       = "0.12"
+tempfile          = "3"
+
+# ──────────────────────────────────────────────────────────────────────────────
+
+[package]
+name = "fossic"
+version = "0.1.0"
+edition = "2021"
+description = "Local-first event sourcing library with content-addressed event identity"
+license = "MIT OR Apache-2.0"
+
+[features]
+default = ["agent-trace"]
+agent-trace = []
+encryption = []
+similarity = []
+tauri = []
+
+[dependencies]
+blake3             = "1"
+rusqlite           = { version = "0.31", features = ["bundled"] }
+serde              = { workspace = true }
+serde_json         = { workspace = true }
+rmp-serde          = { workspace = true }
+unicode-normalization = "0.1"
+thiserror          = "2"
+crossbeam-channel  = { workspace = true }
+notify             = "6"
+parking_lot        = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+
+[[test]]
+name = "cce_vectors"
+path = "tests/cce_vectors.rs"
+
+[[test]]
+name = "subscriptions"
+path = "tests/subscriptions.rs"
+
+[[test]]
+name = "wal_watch"
+path = "tests/wal_watch.rs"
+
+[[test]]
+name = "transforms"
+path = "tests/transforms.rs"
+
+[[test]]
+name = "upcasters"
+path = "tests/upcasters.rs"
+
+[[test]]
+name = "cross_stream"
+path = "tests/cross_stream.rs"
+
+[[test]]
+name = "cursors"
+path = "tests/cursors.rs"
+
+[[test]]
+name = "deletion"
+path = "tests/deletion.rs"
+
+[[test]]
+name = "branches"
+path = "tests/branches.rs"
+
+[[test]]
+name = "snapshots"
+path = "tests/snapshots.rs"
+
+[[test]]
+name = "reducers"
+path = "tests/reducers.rs"
+
+[[test]]
+name = "glob"
+path = "tests/glob.rs"
+
+[[test]]
+name = "dyn_reducers"
+path = "tests/dyn_reducers.rs"
+
+[[test]]
+name = "similarity"
+path = "tests/similarity.rs"
