@@ -1,3 +1,4 @@
+mod cce;
 mod errors;
 mod store;
 mod subscriptions;
@@ -5,6 +6,7 @@ mod types;
 
 use pyo3::prelude::*;
 
+use cce::{cce_encode_bytes_raw, cce_encode_f64_bits, cce_encode_value};
 use errors::register as register_errors;
 use store::PyStore;
 use subscriptions::PyRawSubscriptionHandle;
@@ -33,6 +35,11 @@ fn _fossic(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     // Exception hierarchy
     register_errors(m)?;
+
+    // CCE encoding (testing / tooling; rarely needed in production code)
+    m.add_function(wrap_pyfunction!(cce_encode_value, m)?)?;
+    m.add_function(wrap_pyfunction!(cce_encode_bytes_raw, m)?)?;
+    m.add_function(wrap_pyfunction!(cce_encode_f64_bits, m)?)?;
 
     Ok(())
 }

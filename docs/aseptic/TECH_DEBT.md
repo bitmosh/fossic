@@ -1,6 +1,6 @@
 ---
 title: Tech Debt — Living Report
-last_reviewed: v0.10.1
+last_reviewed: v0.10.0.u
 ---
 
 # Tech Debt — Living Report
@@ -156,3 +156,39 @@ implementation is pending.
 
 **Evidence:** `fossic/Cargo.toml` — `similarity = []` feature flag, no associated code.
 `fossic/src/lib.rs` — no `SimilaritySearchProvider` in the public API. TIDYUP survey D1.
+
+---
+id: TD-005
+type: tech_debt
+status: resolved
+pass_opened: v0.10.0.u
+pass_resolved: v0.10.0.u
+severity: LOW
+---
+
+### ~~TD-005 — fossic-py had no CCE conformance harness (binding parity gap)~~
+
+> **Resolved in v0.10.0.u** — Added `cce_encode_value`, `cce_encode_bytes_raw`,
+> `cce_encode_f64_bits` to fossic-py (State B: encoder was internal to `append()`).
+> Created `fossic-py/tests/test_cce_vectors.py`: 29 vectors pass, 1 skipped
+> (`expected_hex: null`, same as Rust harness). See blast-radius/pass-10.0.u.md.
+
+<details>
+<summary>Original entry</summary>
+
+**What it is:** The Rust core has `tests/cce_vectors.rs` that verifies the CCE encoder
+against all canonical vectors in `cce-test-vectors.json`. The Python binding had no
+equivalent harness — any drift in fossic-py's CCE encoding path would go undetected.
+
+**Why it was necessary:** The Python binding does CCE encoding internally inside
+`append()`, but the encoder was never exposed to Python callers or test code.
+
+**Known cost:** Python binding CCE divergence could produce silent wrong event IDs,
+undetectable without comparing with the Rust core on the same input.
+
+**Trigger:** Add Python harness in the same pass that adds it, i.e. now.
+
+**Evidence:** `fossic-py/src/lib.rs` — no `cce_encode_*` functions registered before
+v0.10.0.u. `tests/cce_vectors.rs` exists as the Rust reference.
+
+</details>

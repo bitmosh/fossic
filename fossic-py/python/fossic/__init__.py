@@ -81,6 +81,9 @@ try:
         SubscriptionMode,
         UpcasterChainGapError,
         OpenOptions,
+        cce_encode_value,
+        cce_encode_bytes_raw,
+        cce_encode_f64_bits,
     )
     _RUST_AVAILABLE = True
 except ImportError:
@@ -474,4 +477,8 @@ __all__ = [
     "EventNotFoundError",
     "UpcasterChainGapError",
     "StorageError",
+    # CCE encoding (testing / tooling)
+    "cce_encode_value",
+    "cce_encode_bytes_raw",
+    "cce_encode_f64_bits",
 ]
