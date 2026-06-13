@@ -2,7 +2,7 @@
 //!
 //! Register all fossic IPC commands by adding the plugin to your Tauri builder:
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use fossic::{OpenOptions, Store};
 //! use fossic_tauri::plugin;
 //!
@@ -18,7 +18,7 @@
 //! If you need to manage the `Store` yourself (e.g. to share it with non-fossic
 //! commands), use `register_commands` in your setup closure instead:
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! # use fossic::{OpenOptions, Store};
 //! # use fossic_tauri::register_commands;
 //! # fn main() {

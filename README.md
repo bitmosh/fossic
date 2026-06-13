@@ -48,8 +48,33 @@ Fossic uses `std::thread` and `crossbeam-channel` — no async runtime required.
 ## Tests
 
 ```sh
-cargo test --all-features
-cargo test --test cce_vectors -- --nocapture
+just test
+```
+
+Runs Rust, Python, and Node binding tests and prints pass counts for each.
+First run takes ~2 minutes (Python venv setup, maturin release build, npm install).
+Subsequent runs are ~30 s (incremental compilation, cached deps).
+
+For a single binding during development:
+
+```sh
+just test-rust   # Rust workspace (includes fossic-tauri integration tests)
+just test-py     # Python (builds maturin extension, runs pytest)
+just test-node   # Node (builds native module, runs vitest)
+```
+
+Without `just` installed, you can invoke each suite directly:
+
+```sh
+# Rust
+cargo test --workspace --all-features
+
+# Python (from repo root; .venv-test must exist with maturin + pytest)
+cd fossic-py && ../.venv-test/bin/maturin develop --release
+PYTHONPATH=fossic-py/python .venv-test/bin/pytest fossic-py/tests/ -v
+
+# Node
+cd fossic-node && npm install && npm run build && npm test
 ```
 
 ## License

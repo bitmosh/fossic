@@ -1,6 +1,6 @@
 ---
 title: Polish Debt — Living Report
-last_reviewed: v0.10.0s
+last_reviewed: v0.10.0r
 ---
 
 # Polish Debt — Living Report
@@ -187,4 +187,35 @@ severity: LOW
 **Recommendation:** Option 2 — cleaner architecture; the harness tests fossic's complete `event_id` derivation (CCE + blake3) through the same code path production callers use, rather than reimplementing blake3 in Python.
 
 **Trigger:** v1.0.0 polish pass, or when a consumer reports an unexpected `event_id` mismatch.
+
+
+---
+id: PD-008
+type: polish_debt
+status: resolved
+pass_opened: v0.10.0r
+pass_resolved: v0.10.0r
+severity: LOW
+---
+
+### ~~PD-008 — No canonical test invocation documented~~
+
+> **Resolved in v0.10.0r** — `just test` is the canonical command; documented in
+> `README.md` with first-run timing, per-binding variants, and no-just fallback.
+> See blast-radius/pass-10.0r.md.
+
+<details>
+<summary>Original entry</summary>
+
+**What it is:** `README.md` documented `cargo test --all-features` (Rust only) and
+`cargo test --test cce_vectors -- --nocapture` as the test commands. No mention of
+Python or Node test invocation. No per-binding shortcuts. No first-run setup guidance.
+
+**Where:** `README.md` §Tests section.
+
+**Fix:** Add `just test` as the canonical command with a short description, note on
+first-run cost, per-binding variants (`just test-rust`, `just test-py`, `just test-node`),
+and a no-just fallback block for contributors without `just` installed.
+
+</details>
 

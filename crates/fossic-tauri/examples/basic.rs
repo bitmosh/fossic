@@ -34,6 +34,7 @@ fn main() {
     println!("read back {} event(s)", events.len());
 
     // Plugin registration (builder not run in this headless example).
-    let _ = plugin::<tauri::Wry>(store);
+    // Uses MockRuntime so no Wry/WebView dependency is needed here.
+    let _ = plugin::<tauri::test::MockRuntime>(store);
     println!("fossic-tauri plugin constructed successfully");
 }

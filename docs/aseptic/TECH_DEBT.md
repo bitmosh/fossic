@@ -1,6 +1,6 @@
 ---
 title: Tech Debt — Living Report
-last_reviewed: v0.10.0s
+last_reviewed: v0.10.0r
 ---
 
 # Tech Debt — Living Report
@@ -190,5 +190,45 @@ undetectable without comparing with the Rust core on the same input.
 
 **Evidence:** `fossic-py/src/lib.rs` — no `cce_encode_*` functions registered before
 v0.10.0.u. `tests/cce_vectors.rs` exists as the Rust reference.
+
+</details>
+
+---
+id: TD-006
+type: tech_debt
+status: resolved
+pass_opened: v0.10.0r
+pass_resolved: v0.10.0r
+severity: LOW
+---
+
+### ~~TD-006 — Test surface fragmented across three toolchains with environment setup gotchas~~
+
+> **Resolved in v0.10.0r** — Added `Justfile` with `just test` target that runs all
+> three binding suites (Rust, Python, Node) in sequence, handles first-run venv and
+> npm setup idempotently, reports per-binding pass counts, and exits non-zero on any
+> failure. CI updated to use `--workspace --all-features` (one source of truth with
+> `just test-rust`). Per-binding targets `just test-rust`, `just test-py`, `just test-node`
+> added for development iteration. See blast-radius/pass-10.0r.md.
+
+<details>
+<summary>Original entry</summary>
+
+**What it is:** Running the full fossic test suite required three separate toolchain
+invocations with non-obvious environment setup:
+
+1. **Rust** — `cargo test --workspace --all-features` (but fossic-tauri tests silently
+   skipped without `--features test-helpers`; `tests/read_range.rs` failed to compile
+   without the feature, blocking `cargo test --workspace` entirely)
+2. **Python** — required knowing the maturin binary path in the uv cache, setting
+   `PYTHONPATH`, using the correct pytest binary; no venv was managed by the repo
+3. **Node** — required `npm run build` before `npm test` (native module not pre-built);
+   order not documented
+
+**Known cost:** Contributors and rc.1 adopters could not reliably run the full suite.
+`cargo test --workspace` failed to compile due to the Tauri feature gate bugs. Python
+tests required manual environment discovery. No aggregate pass count was visible.
+
+**Trigger:** Before v1.0-rc.1 tag — developer experience requirement.
 
 </details>

@@ -37,8 +37,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-      - name: cargo test --all-features
-        run: cargo test --all-features
+      - name: cargo test --workspace --all-features
+        run: cargo test --workspace --all-features
 
   # ── Rust: CCE vectors (canonical content encoding determinism) ────────────────
   cce-vectors:

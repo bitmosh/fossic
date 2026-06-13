@@ -1,3 +1,5 @@
+#![cfg(feature = "test-helpers")]
+
 use fossic::{Append, OpenOptions, Store};
 use tauri::Manager;
 
