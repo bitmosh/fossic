@@ -1,6 +1,6 @@
 ---
 title: Polish Debt — Living Report
-last_reviewed: v0.10.v
+last_reviewed: v0.10.0t
 ---
 
 # Polish Debt — Living Report
@@ -146,3 +146,20 @@ highest registered `to_version`; a gap in the chain (1→2, 3→4 but no 2→3) 
 `UpcasterChainGapError` at read time.
 
 </details>
+
+---
+id: PD-005
+type: polish_debt
+status: open
+pass_opened: v0.10.0t
+severity: LOW
+---
+
+### PD-005 — Extension event type naming convention inconsistency (snake_case vs PascalCase)
+
+**What it is:** Rhyzome and bons.ai extension event types use `snake_case` naming (e.g., `strategy_selected`, `bandit_arm_selected`). Cerebra extension event types use `PascalCase` (e.g., `SessionOpened`, `ClutchDecisionMade`). Both conventions work — fossic core is agnostic to event type name casing — but the inconsistency is visible to readers of AGENT_TRACE_VOCABULARY.md and creates a question about which convention new consumers should follow.
+
+**Where:** `docs/implement/AGENT_TRACE_VOCABULARY.md` §9 ("Adding new event types") acknowledges both conventions exist but doesn't make a recommendation.
+
+**Fix:** Add one sentence to §9 recommending a convention for new consumers: either standardize on `snake_case` (matching fossic core's convention for the standard five types) or accept `PascalCase` (Cerebra's convention, common in event sourcing). If consensus is `snake_case`, note that Cerebra's PascalCase names are grandfathered. No code changes — docs-only.
+
