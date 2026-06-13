@@ -174,6 +174,7 @@ pub struct ReadQuery {
     pub from_version: Option<u64>,
     pub to_version: Option<u64>,
     pub limit: Option<usize>,
+    pub event_type_filter: Option<String>,
 }
 
 impl ReadQuery {
@@ -184,6 +185,7 @@ impl ReadQuery {
             from_version: None,
             to_version: None,
             limit: None,
+            event_type_filter: None,
         }
     }
 }

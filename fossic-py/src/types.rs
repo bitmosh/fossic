@@ -283,20 +283,22 @@ pub struct PyReadQuery {
     pub from_version: Option<u64>,
     pub to_version: Option<u64>,
     pub limit: Option<usize>,
+    pub event_type_filter: Option<String>,
 }
 
 #[pymethods]
 impl PyReadQuery {
     #[new]
-    #[pyo3(signature = (stream_id, branch = "main".to_string(), from_version = None, to_version = None, limit = None))]
+    #[pyo3(signature = (stream_id, branch = "main".to_string(), from_version = None, to_version = None, limit = None, event_type_filter = None))]
     fn new(
         stream_id: String,
         branch: String,
         from_version: Option<u64>,
         to_version: Option<u64>,
         limit: Option<usize>,
+        event_type_filter: Option<String>,
     ) -> Self {
-        PyReadQuery { stream_id, branch, from_version, to_version, limit }
+        PyReadQuery { stream_id, branch, from_version, to_version, limit, event_type_filter }
     }
 }
 
@@ -308,6 +310,7 @@ impl From<&PyReadQuery> for ReadQuery {
             from_version: q.from_version,
             to_version: q.to_version,
             limit: q.limit,
+            event_type_filter: q.event_type_filter.clone(),
         }
     }
 }

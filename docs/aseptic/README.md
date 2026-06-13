@@ -1,7 +1,7 @@
 ---
 title: Aseptic Methodology — fossic Working Copy
 status: live
-version: v0.10.v
+version: v0.10.1
 ---
 
 # Aseptic — fossic Working Files

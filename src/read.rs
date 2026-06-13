@@ -56,12 +56,13 @@ pub(crate) fn read_range_impl(
     let sql = format!(
         "SELECT {SELECT_COLS} FROM events \
          WHERE stream_id = ?1 AND branch = ?2 AND version >= ?3 AND version <= ?4 \
+         AND (?6 IS NULL OR event_type = ?6) \
          ORDER BY version ASC LIMIT ?5"
     );
 
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(
-        rusqlite::params![q.stream_id, q.branch, from, to, limit],
+        rusqlite::params![q.stream_id, q.branch, from, to, limit, q.event_type_filter],
         row_to_event,
     )?;
 

@@ -258,6 +258,7 @@ fn read_range_with_from_version() {
         from_version: Some(5),
         to_version: None,
         limit: None,
+        event_type_filter: None,
     }).unwrap();
     assert_eq!(events.len(), 5);
     assert_eq!(events[0].version, 5);
@@ -282,6 +283,7 @@ fn read_range_with_limit() {
         from_version: None,
         to_version: None,
         limit: Some(3),
+        event_type_filter: None,
     }).unwrap();
     assert_eq!(events.len(), 3);
 }
@@ -401,6 +403,80 @@ fn version_monotonically_increases() {
     assert_eq!(versions, sorted, "versions must be monotonically increasing");
     assert_eq!(versions[0], 0);
     assert_eq!(versions[9], 9);
+}
+
+// ── event_type_filter ─────────────────────────────────────────────────────────
+
+#[test]
+fn read_range_event_type_filter_returns_matching() {
+    let (store, _dir) = open_tmp();
+    store.declare_stream("test/s", "t", None).unwrap();
+    for i in 0..3u32 {
+        store.append(Append { stream_id: "test/s".to_string(), event_type: "Alpha".to_string(), payload: serde_json::json!({"i": i}), ..Default::default() }).unwrap();
+        store.append(Append { stream_id: "test/s".to_string(), event_type: "Beta".to_string(), payload: serde_json::json!({"i": i}), ..Default::default() }).unwrap();
+    }
+    let mut q = ReadQuery::stream("test/s");
+    q.event_type_filter = Some("Alpha".to_string());
+    let events = store.read_range(q).unwrap();
+    assert_eq!(events.len(), 3);
+    assert!(events.iter().all(|e| e.event_type == "Alpha"));
+}
+
+#[test]
+fn read_range_event_type_filter_no_match_returns_empty() {
+    let (store, _dir) = open_tmp();
+    store.declare_stream("test/s", "t", None).unwrap();
+    store.append(Append { stream_id: "test/s".to_string(), event_type: "Alpha".to_string(), payload: serde_json::json!({"i": 0}), ..Default::default() }).unwrap();
+    let mut q = ReadQuery::stream("test/s");
+    q.event_type_filter = Some("NoSuchType".to_string());
+    let events = store.read_range(q).unwrap();
+    assert!(events.is_empty());
+}
+
+#[test]
+fn read_range_event_type_filter_combined_with_from_version() {
+    let (store, _dir) = open_tmp();
+    store.declare_stream("test/s", "t", None).unwrap();
+    for i in 0..5u32 {
+        store.append(Append { stream_id: "test/s".to_string(), event_type: "Alpha".to_string(), payload: serde_json::json!({"i": i}), ..Default::default() }).unwrap();
+    }
+    // versions 0–4; ask from_version=2 and filter Alpha
+    let mut q = ReadQuery::stream("test/s");
+    q.from_version = Some(2);
+    q.event_type_filter = Some("Alpha".to_string());
+    let events = store.read_range(q).unwrap();
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[0].version, 2);
+}
+
+#[test]
+fn read_range_event_type_filter_limit_applied_after_filter() {
+    let (store, _dir) = open_tmp();
+    store.declare_stream("test/s", "t", None).unwrap();
+    for i in 0..10u32 {
+        store.append(Append { stream_id: "test/s".to_string(), event_type: "Alpha".to_string(), payload: serde_json::json!({"i": i}), ..Default::default() }).unwrap();
+        store.append(Append { stream_id: "test/s".to_string(), event_type: "Beta".to_string(), payload: serde_json::json!({"i": i}), ..Default::default() }).unwrap();
+    }
+    let mut q = ReadQuery::stream("test/s");
+    q.event_type_filter = Some("Alpha".to_string());
+    q.limit = Some(4);
+    let events = store.read_range(q).unwrap();
+    assert_eq!(events.len(), 4);
+    assert!(events.iter().all(|e| e.event_type == "Alpha"));
+}
+
+#[test]
+fn read_range_event_type_filter_none_returns_all() {
+    let (store, _dir) = open_tmp();
+    store.declare_stream("test/s", "t", None).unwrap();
+    for i in 0..3u32 {
+        store.append(Append { stream_id: "test/s".to_string(), event_type: "Alpha".to_string(), payload: serde_json::json!({"i": i}), ..Default::default() }).unwrap();
+        store.append(Append { stream_id: "test/s".to_string(), event_type: "Beta".to_string(), payload: serde_json::json!({"i": i}), ..Default::default() }).unwrap();
+    }
+    let q = ReadQuery::stream("test/s");
+    // event_type_filter is None by default
+    let events = store.read_range(q).unwrap();
+    assert_eq!(events.len(), 6);
 }
 
 // ── EventId helpers ───────────────────────────────────────────────────────────

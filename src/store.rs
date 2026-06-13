@@ -694,6 +694,7 @@ impl Store {
                     from_version: Some(start_v),
                     to_version: None,
                     limit: None,
+                    event_type_filter: None,
                 },
             )?;
             let snap_ver = if let Some(last) = evs.last() {
@@ -863,6 +864,7 @@ impl Store {
                 from_version: Some(start_v),
                 to_version: max_version,
                 limit: None,
+                event_type_filter: None,
             },
         )?;
         Ok((bytes, events))

@@ -70,6 +70,7 @@ pub fn fossic_read_range(
     from_version: Option<u64>,
     to_version: Option<u64>,
     limit: Option<usize>,
+    event_type_filter: Option<String>,
 ) -> Result<Vec<SerializedEvent>, FossicTauriError> {
     let mut q = ReadQuery::stream(stream_id);
     if let Some(b) = branch {
@@ -83,6 +84,9 @@ pub fn fossic_read_range(
     }
     if let Some(n) = limit {
         q.limit = Some(n);
+    }
+    if let Some(f) = event_type_filter {
+        q.event_type_filter = Some(f);
     }
     store
         .read_range(q)

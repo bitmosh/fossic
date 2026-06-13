@@ -1,6 +1,6 @@
 ---
 title: Tech Debt — Living Report
-last_reviewed: v0.10.v
+last_reviewed: v0.10.1
 ---
 
 # Tech Debt — Living Report
@@ -54,12 +54,23 @@ is ~0.047ms/event confirmed in scenario analysis.
 ---
 id: TD-002
 type: tech_debt
-status: open
+status: resolved
 pass_opened: v0.8.6
+pass_resolved: v0.10.1
 severity: MEDIUM
 ---
 
-### TD-002 — ReadQuery lacks event_type_filter field (RB-1)
+### ~~TD-002 — ReadQuery lacks event_type_filter field (RB-1)~~
+
+> **Resolved in v0.10.1** — `event_type_filter: Option<String>` added to `ReadQuery`
+> across all four layers: Rust core, fossic-py, fossic-node, fossic-tauri.
+> SQL NULL-guard pattern applied in `read_range_impl`. The `xfail` test in
+> `fossic-py/tests/test_cross_stream.py` has been resolved and now passes.
+> 5 Rust integration tests, 1 Python test, 4 Node tests, 2 Tauri tests added.
+> See blast-radius/pass-10.1.md.
+
+<details>
+<summary>Original entry</summary>
 
 **What it is:** `ReadQuery` (used by `read_range`) has no `event_type` filter field.
 `AggregateQuery` (used by `aggregate`) has `event_type_filter`. Consumers who want to
@@ -79,6 +90,8 @@ Decision needed: land as v0.10.1 (additive, non-breaking) or defer to v1.0.0.
 **Evidence:** `fossic-py/tests/test_cross_stream.py::test_read_range_event_type_filter`
 is marked `xfail(strict=True)` — it raises `TypeError` because `ReadQuery` accepts no
 `event_type` keyword argument.
+
+</details>
 
 ---
 

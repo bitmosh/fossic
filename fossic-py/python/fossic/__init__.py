@@ -244,6 +244,12 @@ class Store:
         return self._inner.append_batch(appends)  # type: ignore[return-value]
 
     def read_range(self, query: Any) -> "list[StoredEvent]":
+        """Read events from a single stream.
+
+        Pass a ``ReadQuery`` to control which events are returned.
+        ``ReadQuery.event_type_filter`` (optional) limits results to events
+        whose ``event_type`` matches exactly; ``None`` (default) returns all types.
+        """
         return self._inner.read_range(query)  # type: ignore[return-value]
 
     def read_one(self, event_id: "EventId") -> "Optional[StoredEvent]":

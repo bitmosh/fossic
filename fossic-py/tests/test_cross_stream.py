@@ -75,14 +75,6 @@ def test_aggregate_empty_pattern_no_results(tmp_store: Store) -> None:
     assert events == []
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "REAL_BUG (Pass 8.6): fossic core ReadQuery has no event_type field; "
-        "event-type filtering on read_range is not yet implemented. "
-        "AggregateQuery supports event_type_filter; ReadQuery does not."
-    ),
-)
 def test_read_range_event_type_filter(declared_store: Store) -> None:
     declared_store.append(
         Append(stream_id="test/s", event_type="Alpha", payload={"n": 1})
@@ -91,7 +83,7 @@ def test_read_range_event_type_filter(declared_store: Store) -> None:
         Append(stream_id="test/s", event_type="Beta", payload={"n": 2})
     )
     events = declared_store.read_range(
-        ReadQuery(stream_id="test/s", event_type="Alpha")
+        ReadQuery(stream_id="test/s", event_type_filter="Alpha")
     )
     assert len(events) == 1
     assert events[0].event_type == "Alpha"

@@ -151,6 +151,7 @@ pub struct ReadQueryJs {
     /// Inclusive upper bound (BigInt in JS).
     pub to_version: Option<BigInt>,
     pub limit: Option<u32>,
+    pub event_type_filter: Option<String>,
 }
 
 impl From<ReadQueryJs> for fossic::ReadQuery {
@@ -167,6 +168,9 @@ impl From<ReadQueryJs> for fossic::ReadQuery {
         }
         if let Some(n) = js.limit {
             q.limit = Some(n as usize);
+        }
+        if let Some(f) = js.event_type_filter {
+            q.event_type_filter = Some(f);
         }
         q
     }

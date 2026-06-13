@@ -361,6 +361,10 @@ pub struct ReadQuery {
     pub from_version: Option<u64>,
     pub to_version: Option<u64>,
     pub limit: Option<usize>,
+    /// When `Some`, only events whose `event_type` matches exactly are returned.
+    /// Uses a SQL NULL-guard: `AND (?6 IS NULL OR event_type = ?6)`.
+    /// Mirrors the same field in `AggregateQuery`.
+    pub event_type_filter: Option<String>,
 }
 
 pub enum SubscriptionMode {
@@ -432,6 +436,12 @@ events = store.read_range(ReadQuery(
     stream_id="cerebra/lattice/abc123",
     branch="main",
     from_version=0,
+))
+
+# Read only a specific event type (policy scout use-case: mixed audit stream)
+violations = store.read_range(ReadQuery(
+    stream_id="policy-scout/audit",
+    event_type_filter="PolicyViolation",
 ))
 
 # Lookup by external ID (Cerebra's evt_<uuid>)
@@ -573,7 +583,7 @@ Commands registered by `fossic-tauri`:
 |---|---|---|
 | `fossic_list_streams` | — | `StreamInfo[]` |
 | `fossic_list_branches` | `stream_id` | `BranchInfo[]` |
-| `fossic_read_range` | `stream_id, branch, from_version, to_version, limit` | `SerializedEvent[]` |
+| `fossic_read_range` | `stream_id, branch, from_version, to_version, limit, event_type_filter` | `SerializedEvent[]` |
 | `fossic_read_one` | `event_id` (hex) | `SerializedEvent \| null` |
 | `fossic_read_by_external_id` | `stream_id, external_id` | `SerializedEvent \| null` |
 | `fossic_read_state_at_version` | `stream_id, branch, version, reducer_name` | `SerializedState` |

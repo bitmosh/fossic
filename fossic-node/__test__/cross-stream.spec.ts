@@ -93,6 +93,50 @@ describe('cross-stream queries', () => {
     expect(limited.length).toBeLessThanOrEqual(2)
   })
 
+  it('eventTypeFilter returns only matching events', async () => {
+    const store = Store.open(tempDb())
+    await store.declareStream('filter/s', 'test-suite')
+    for (let i = 0; i < 3; i++) {
+      await store.append({ streamId: 'filter/s', eventType: 'Alpha', payload: { i } })
+      await store.append({ streamId: 'filter/s', eventType: 'Beta', payload: { i } })
+    }
+    const events = await store.readRange({ streamId: 'filter/s', eventTypeFilter: 'Alpha' })
+    expect(events.length).toBe(3)
+    expect(events.every(e => e.eventType === 'Alpha')).toBe(true)
+  })
+
+  it('eventTypeFilter with no match returns empty array', async () => {
+    const store = Store.open(tempDb())
+    await store.declareStream('filter/empty', 'test-suite')
+    await store.append({ streamId: 'filter/empty', eventType: 'Alpha', payload: { i: 0 } })
+    const events = await store.readRange({ streamId: 'filter/empty', eventTypeFilter: 'NoSuchType' })
+    expect(events.length).toBe(0)
+  })
+
+  it('eventTypeFilter combined with fromVersion', async () => {
+    const store = Store.open(tempDb())
+    await store.declareStream('filter/from', 'test-suite')
+    for (let i = 0; i < 5; i++) {
+      await store.append({ streamId: 'filter/from', eventType: 'Alpha', payload: { i } })
+    }
+    const all = await store.readRange({ streamId: 'filter/from' })
+    const fromV = all[2].version
+    const events = await store.readRange({ streamId: 'filter/from', fromVersion: fromV, eventTypeFilter: 'Alpha' })
+    expect(events.length).toBe(3)
+    expect(events[0].version).toBe(fromV)
+  })
+
+  it('eventTypeFilter null returns all events', async () => {
+    const store = Store.open(tempDb())
+    await store.declareStream('filter/all', 'test-suite')
+    for (let i = 0; i < 3; i++) {
+      await store.append({ streamId: 'filter/all', eventType: 'Alpha', payload: { i } })
+      await store.append({ streamId: 'filter/all', eventType: 'Beta', payload: { i } })
+    }
+    const events = await store.readRange({ streamId: 'filter/all' })
+    expect(events.length).toBe(6)
+  })
+
   it('cursor get/set roundtrip', async () => {
     const store = Store.open(tempDb())
     await store.declareStream('cur/stream', 'test')
