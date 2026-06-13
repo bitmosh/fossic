@@ -822,7 +822,7 @@ Rhyzome and bons.ai extension types map to INTERNAL spans with `fossic.event_typ
 
 ### 8.2 Cerebra cycle runtime mapping
 
-The span hierarchy for Cerebra cycle events is: **session → cycle → step**. Session spans contain cycle spans; cycle spans contain step spans; evaluation and control sub-events are children of their respective step spans.
+The span hierarchy for Cerebra cycle events is: **session → cycle → step**. Session spans contain cycle spans; cycle spans contain step spans. Sub-events within a step (predictions, signal evaluations, evaluation composition, outcome recording, clutch decisions, leeway gate decisions, memory writes) are **span events** on the step span rather than separate child spans — this keeps per-cycle span count bounded and avoids cardinality bloat when steps perform multiple evaluations. The catalyst sub-flow (when invoked) gets its own child sub-span of the step span, containing the arm selection decision.
 
 **Cardinality note:** `checklist_details` from `SignalEvaluated` is NOT exported to OTel — it is a high-cardinality nested dict that would bloat trace storage. All other standard Cerebra fields are exported.
 
@@ -837,23 +837,26 @@ The span hierarchy for Cerebra cycle events is: **session → cycle → step**. 
 | `CycleStarted` | INTERNAL (cycle span begin) | `gen_ai.cerebra.session_id`, `gen_ai.cerebra.cycle_id`, `gen_ai.cerebra.cycle_config` |
 | `CycleCompleted` | INTERNAL (cycle span end) | `gen_ai.cerebra.outcome`, `gen_ai.cerebra.total_steps` |
 | `StepStarted` | INTERNAL (step span begin) | `gen_ai.cerebra.session_id`, `gen_ai.cerebra.cycle_id`, `gen_ai.cerebra.step_id`, `gen_ai.cerebra.step_type` |
-| `ContextPacketBuilt` | INTERNAL (sub-span of step) | `gen_ai.cerebra.packet_id`, `gen_ai.cerebra.selected_count`, `gen_ai.cerebra.abstained` |
+| `ContextPacketBuilt` | (span event on step span) | `gen_ai.cerebra.packet_id`, `gen_ai.cerebra.selected_count`, `gen_ai.cerebra.abstained` |
 | `StepExecuted` | INTERNAL (step span end) | `gen_ai.request.model` (from `llm_model`), `gen_ai.cerebra.prompt_tokens`, `gen_ai.cerebra.completion_tokens`, `gen_ai.cerebra.step_id` |
-| `PredictionMade` | INTERNAL (single span) | `gen_ai.cerebra.prediction_id`, `gen_ai.cerebra.expected_composite_score`, `gen_ai.cerebra.prediction_basis` |
-| `SignalEvaluated` | INTERNAL (single span) | `gen_ai.cerebra.signal_name`, `gen_ai.cerebra.signal_score`, `gen_ai.cerebra.low_confidence` |
-| `EvaluationComposed` | INTERNAL (single span) | `gen_ai.cerebra.evaluation_id`, `gen_ai.cerebra.composite_score`, `gen_ai.cerebra.composite_floor_violated` |
-| `OutcomeRecorded` | INTERNAL (single span) | `gen_ai.cerebra.outcome_id`, `gen_ai.cerebra.prediction_error`, `gen_ai.cerebra.error_classification` |
-| `PredictionSevereMiss` | INTERNAL (single span) | `gen_ai.cerebra.prediction_error`, `gen_ai.cerebra.expected`, `gen_ai.cerebra.actual` |
-| `ClutchDecisionMade` | INTERNAL (single span) | `gen_ai.cerebra.action`, `gen_ai.cerebra.rule_matched`, `gen_ai.cerebra.escalate_to_catalyst` |
+| `StepExecutionFailed` | (span event on step span, sets step span status to error) | `gen_ai.cerebra.error_type`, `gen_ai.cerebra.retry_count`, `gen_ai.cerebra.error_message?` |
+| `PredictionMade` | (span event on step span) | `gen_ai.cerebra.prediction_id`, `gen_ai.cerebra.expected_composite_score`, `gen_ai.cerebra.prediction_basis` |
+| `SignalEvaluated` | (span event on step span, 6 per step) | `gen_ai.cerebra.signal.name`, `gen_ai.cerebra.signal.score`, `gen_ai.cerebra.signal.basis` (from `evaluator_prompt_version`), `gen_ai.cerebra.signal.strength?`, `gen_ai.cerebra.signal.low_confidence?`, `gen_ai.cerebra.event_id` |
+| `EvaluationComposed` | (span event on step span) | `gen_ai.cerebra.evaluation_id`, `gen_ai.cerebra.composite_score`, `gen_ai.cerebra.composite_floor_violated` |
+| `OutcomeRecorded` | (span event on step span) | `gen_ai.cerebra.outcome_id`, `gen_ai.cerebra.prediction_error`, `gen_ai.cerebra.error_classification` |
+| `PredictionSevereMiss` | (span event on step span, sets step span status to warn) | `gen_ai.cerebra.prediction_error`, `gen_ai.cerebra.expected`, `gen_ai.cerebra.actual` |
+| `ClutchDecisionMade` | (span event on step span) | `gen_ai.cerebra.action`, `gen_ai.cerebra.rule_matched`, `gen_ai.cerebra.escalate_to_catalyst` |
 | `CatalystInvoked` | INTERNAL (sub-span begin) | `gen_ai.cerebra.invocation_id`, `gen_ai.cerebra.vocabulary_size`, `gen_ai.cerebra.leeway_filtered_vocabulary_size` |
 | `CatalystArmSelected` | INTERNAL (sub-span end) | `gen_ai.cerebra.arm_name`, `gen_ai.cerebra.arm_score`, `gen_ai.cerebra.selection_method` |
-| `LeewayGrantApplied` | INTERNAL (single span) | `gen_ai.cerebra.proposed_action`, `gen_ai.cerebra.final_decision`, `gen_ai.cerebra.grants_applied` |
-| `ContinuationBundleCreated` | INTERNAL (sub-span) | `gen_ai.cerebra.bundle_id`, `gen_ai.cerebra.recursion_depth`, `gen_ai.cerebra.bundle_size_bytes` |
+| `LeewayGrantApplied` | (span event on step span) | `gen_ai.cerebra.proposed_action`, `gen_ai.cerebra.final_decision`, `gen_ai.cerebra.grants_applied` |
+| `ContinuationBundleCreated` | (span event on step span) | `gen_ai.cerebra.bundle_id`, `gen_ai.cerebra.recursion_depth`, `gen_ai.cerebra.bundle_size_bytes` |
 | `ReinjectionTriggered` | INTERNAL (single span; links to child session span) | `gen_ai.cerebra.child_session_id`, `gen_ai.cerebra.trigger_reason`, `gen_ai.cerebra.recursion_cap_hit` |
-| `MemoryWriteFromCycle` | INTERNAL (single span) | `gen_ai.cerebra.record_id`, `gen_ai.cerebra.write_reason` |
+| `MemoryWriteFromCycle` | (span event on step span) | `gen_ai.cerebra.record_id`, `gen_ai.cerebra.write_reason` |
 | `ConsolidationStarted` | INTERNAL (consolidation span begin) | `gen_ai.cerebra.session_id`, `gen_ai.cerebra.consolidation_id`, `gen_ai.cerebra.session_event_count` |
 | `ConsolidationCompleted` | INTERNAL (consolidation span end) | `gen_ai.cerebra.summary_record_id`, `gen_ai.cerebra.consolidation_id` |
 | `GraphExported` | INTERNAL (single span) | `gen_ai.cerebra.export_id`, `gen_ai.cerebra.node_count`, `gen_ai.cerebra.edge_count` |
+
+> **Attribute mapping note:** Cerebra payload fields map to OTel attributes via the exporter at emit time. `evaluator_prompt_version` in the `SignalEvaluated` payload becomes `gen_ai.cerebra.signal.basis` on the OTel span event. This preserves the basis information without requiring the Cerebra payload schema to use OTel-specific field names.
 
 ### 8.3 Exporter configuration
 
