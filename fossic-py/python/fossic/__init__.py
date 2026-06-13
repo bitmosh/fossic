@@ -81,9 +81,9 @@ try:
         SubscriptionMode,
         UpcasterChainGapError,
         OpenOptions,
-        cce_encode_value,
-        cce_encode_bytes_raw,
-        cce_encode_f64_bits,
+        cce_encode_value as _cce_encode_value_impl,
+        cce_encode_bytes_raw as _cce_encode_bytes_raw_impl,
+        cce_encode_f64_bits as _cce_encode_f64_bits_impl,
     )
     _RUST_AVAILABLE = True
 except ImportError:
@@ -91,6 +91,9 @@ except ImportError:
     _RUST_AVAILABLE = False
     _RustStore = None  # type: ignore[assignment]
     ReadQuery = None  # type: ignore[assignment,misc]
+    _cce_encode_value_impl = None  # type: ignore[assignment]
+    _cce_encode_bytes_raw_impl = None  # type: ignore[assignment]
+    _cce_encode_f64_bits_impl = None  # type: ignore[assignment]
 
 from fossic._worker import SubscriptionWorker
 
@@ -437,6 +440,66 @@ class Store:
     ) -> Any:
         """Like ``read_state`` but folds only events up to *version* inclusive."""
         return self._inner.read_state_at_version(stream_id, branch, version)
+
+
+# ── CCE encoding helpers ──────────────────────────────────────────────────────
+
+
+def cce_encode_value(value: Any) -> bytes:
+    """Encode a Python value using the fossic CCE canonical encoding.
+
+    This is the same encoder used internally by ``Store.append()`` to derive the
+    content-addressed event ID. Production code rarely needs to call this directly;
+    it is available for conformance testing and tooling that needs to pre-compute
+    event IDs without committing an event.
+
+    See ``docs/implement/CCE_SPEC.md`` for the canonical encoding format.
+
+    :param value: Any JSON-serialisable Python value (int, float, str, bool,
+        None, list, dict).
+    :returns: The raw CCE-encoded bytes.
+    :raises ValueError: If the value is not JSON-serialisable.
+    """
+    return _cce_encode_value_impl(value)  # type: ignore[misc]
+
+
+def cce_encode_bytes_raw(data: bytes) -> bytes:
+    """Encode raw bytes using the fossic CCE binary encoding.
+
+    Produces the CCE binary-string wire format: tag byte ``0x05``, then the
+    length as a little-endian unsigned 64-bit integer, then the raw bytes.
+    Lower-level than :func:`cce_encode_value`; used for testing and tooling
+    that needs to verify encoder output for raw binary payloads independently
+    of the value-dispatch path.
+
+    See ``docs/implement/CCE_SPEC.md`` for the canonical format.
+
+    :param data: Raw bytes to encode.
+    :returns: The CCE-encoded bytes including tag and length prefix.
+    """
+    return _cce_encode_bytes_raw_impl(data)  # type: ignore[misc]
+
+
+def cce_encode_f64_bits(bits_hex: str) -> bytes:
+    """Encode an f64 by its raw IEEE 754 bit pattern, applying CCE canonicalization.
+
+    CCE canonicalization rules: NaN is normalized to quiet NaN
+    (``0x7FF8000000000000``); negative zero (``0x8000000000000000``) is
+    normalized to positive zero. All other values (including ±Inf and subnormals)
+    are preserved. The result is a 9-byte sequence: tag ``0x03`` followed by the
+    8 little-endian bytes of the canonical f64.
+
+    Used for testing and tooling that needs to verify encoder output for
+    floating-point values by raw bit pattern.
+
+    See ``docs/implement/CCE_SPEC.md`` for the canonical format.
+
+    :param bits_hex: 16-character hex string representing the big-endian u64
+        bit pattern of the f64 (e.g. ``"3ff0000000000000"`` for 1.0).
+    :returns: The CCE-encoded bytes (9 bytes: tag ``0x03`` + 8 LE bytes).
+    :raises ValueError: If ``bits_hex`` is not a valid 16-character hex string.
+    """
+    return _cce_encode_f64_bits_impl(bits_hex)  # type: ignore[misc]
 
 
 __all__ = [

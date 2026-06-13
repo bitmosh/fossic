@@ -1,6 +1,6 @@
 ---
 title: Polish Debt — Living Report
-last_reviewed: v0.10.0t
+last_reviewed: v0.10.0s
 ---
 
 # Polish Debt — Living Report
@@ -162,4 +162,29 @@ severity: LOW
 **Where:** `docs/implement/AGENT_TRACE_VOCABULARY.md` §9 ("Adding new event types") acknowledges both conventions exist but doesn't make a recommendation.
 
 **Fix:** Add one sentence to §9 recommending a convention for new consumers: either standardize on `snake_case` (matching fossic core's convention for the standard five types) or accept `PascalCase` (Cerebra's convention, common in event sourcing). If consensus is `snake_case`, note that Cerebra's PascalCase names are grandfathered. No code changes — docs-only.
+
+
+---
+id: PD-007
+type: polish_debt
+status: open
+pass_opened: v0.10.0s
+severity: LOW
+---
+
+### PD-007 — blake3 Python availability gap in CCE conformance harness
+
+**What it is:** The CCE conformance harness (`fossic-py/tests/test_cce_vectors.py`) verifies encoder byte-identity using `cce_encode_value`, `cce_encode_bytes_raw`, and `cce_encode_f64_bits`. It does NOT verify `event_id` derivation because blake3 is not available as a Python package in the test environment. Full event identity (CCE bytes → blake3 → event_id) is only tested at the Rust level.
+
+**Surfaced:** v0.10.0u PASS COMPLETE Learnings — "blake3 not available as a Python package; event_id verification skipped."
+
+**Known cost:** Any drift in the fossic-py event_id derivation path (the blake3 call in the Rust append path that Python consumers trigger) would not be caught by the Python-level harness. The Rust-level tests do cover this; the gap is in Python-level observability.
+
+**Resolution options:**
+1. Add `blake3` as a fossic-py test dependency (available on PyPI under the `blake3` package name).
+2. Expose `compute_event_id(cce_bytes: bytes) -> bytes` from fossic-py via PyO3; routes through fossic's own blake3 implementation in Rust and avoids a Python-side blake3 dependency.
+
+**Recommendation:** Option 2 — cleaner architecture; the harness tests fossic's complete `event_id` derivation (CCE + blake3) through the same code path production callers use, rather than reimplementing blake3 in Python.
+
+**Trigger:** v1.0.0 polish pass, or when a consumer reports an unexpected `event_id` mismatch.
 

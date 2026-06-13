@@ -1,6 +1,6 @@
 ---
 title: Tech Debt — Living Report
-last_reviewed: v0.10.0t
+last_reviewed: v0.10.0s
 ---
 
 # Tech Debt — Living Report

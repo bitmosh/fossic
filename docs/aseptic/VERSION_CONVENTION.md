@@ -4,6 +4,30 @@ title: Version Convention — Forward and Descending-Letter Passes
 
 # Version Convention
 
+## Format strictness
+
+Descending-letter cleanup passes use the format `v<major>.<minor>.<patch><letter>` with
+**no dot** between the patch number and the letter:
+
+```
+Correct:   v0.10.0t   v0.10.0u   v0.10.0s
+Incorrect: v0.10.0.t  v0.10.0.u  v0.10.0.s
+```
+
+This format is parser-load-bearing for Blog Bumper integration. Convention drift produces
+parse failures and silent post-skips in the changelog pipeline.
+
+Every pass prompt that generates either a commit version or a PASS COMPLETE message must
+paste the canonical version format verbatim rather than reconstructing it from prior
+context. Multiple format drifts were observed on 2026-06-12 when prompts allowed
+reconstruction — the dot was reintroduced on two consecutive passes before correction.
+
+This strictness applies to descending-letter passes only. Forward-versioned passes
+(`v0.10.0`, `v0.10.1`, `v0.11.0`) follow standard semantic versioning and are not
+subject to this rule.
+
+---
+
 fossic uses two versioning tracks that run in parallel: forward versioning for
 load-bearing work and descending-letter versioning for non-load-bearing cleanup.
 
