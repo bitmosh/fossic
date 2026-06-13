@@ -1,6 +1,6 @@
 ---
 title: Deviation — Living Report
-last_reviewed: v0.10.w
+last_reviewed: v0.10.v
 ---
 
 # Deviation — Living Report
@@ -50,10 +50,20 @@ The pattern is correct and expected; napi-rs consumers universally use this appr
 ---
 id: DV-002
 type: deviation
-status: open
+status: resolved
 pass_opened: v0.8.6
+pass_resolved: v0.10.v
 severity: LOW
 ---
+
+### ~~DV-002 — `purge_event` removes events from read path entirely (RB-2)~~
+
+> **Resolved in v0.10.v** — Spec §9.3 language updated: "removes from read path entirely"
+> replaces the implied-tombstone framing. §16.8 invariant rewritten to match. Audit
+> trail in `_fossic/system` documented explicitly. See blast-radius/pass-10.v.md.
+
+<details>
+<summary>Original entry (preserved for history)</summary>
 
 ### DV-002 — `purge_event` removes events from read path entirely (RB-2)
 
@@ -91,6 +101,8 @@ via normal `read_one`/`read_range` after purge.
 "redacted-payload" event after purge (rather than None) would be silently broken.
 Current adjacent consumers (cerebra, policy-scout) have not implemented purge
 workflows yet — low urgency but should be corrected before they do.
+
+</details>
 
 ---
 

@@ -463,6 +463,8 @@ with store.subscribe(
         process(event)
 ```
 
+**Tilde expansion.** `Store.open` expands `~` and `~username` paths via the `shellexpand` crate before opening the SQLite file. Consumers should pass bare tilde paths; calling `os.path.expanduser()` ahead of `Store.open()` is redundant and may produce unexpected double-expansion if the path has already been expanded.
+
 **PyO3 binding internals and the Python-owned worker pattern.** The binding targets PyO3 ≥ 0.26, which renamed the core APIs (`with_gil → attach`, `allow_threads → detach`) and adds support for free-threaded Python 3.13+/3.14. Earlier PyO3 versions are not supported; their GIL semantics differ enough to affect the threading model below.
 
 Subscription delivery does **not** invoke Python callbacks directly from a Rust-spawned thread. The reason is PyO3 issue #5467 (open as of this writing): Python `threading.local` state is reset on every `Python::attach` call from a non-Python-owned thread. This breaks `asyncio` contextvars, logging context, Django thread-locals, and any other Python machinery that relies on stable thread-local storage — all of which consumers reasonably expect to work inside a callback.
@@ -535,6 +537,8 @@ try {
   sub.unsubscribe();
 }
 ```
+
+**Tilde expansion.** `Store.open` expands `~` paths via the `shellexpand` crate before opening the SQLite file. Pass bare tilde paths; no `path.resolve()` or `os.homedir()` call is needed.
 
 `version` and `EventId` are bigint and `Uint8Array` respectively across the napi boundary. The binding uses TC39 explicit resource management (`using`) where the runtime supports it; explicit `unsubscribe()` is the documented fallback.
 
@@ -765,6 +769,31 @@ Chain resolution is cached in an in-process LRU keyed on `(stream_id, branch_id)
 
 Two branches of the same stream can be appended to concurrently (different `branch` values, different version sequences). They contend only at the SQLite WAL writer lock, which the bench showed is not an issue at realistic throughput. bons.ai's parallel-cycles-on-same-parent concern is addressed by this: parallel cycles map to parallel branches.
 
+### BranchInfo shape
+
+`list_branches` returns a list of `BranchInfo` objects. Field names match the database schema and the Python implementation:
+
+| Field | Type | Notes |
+|---|---|---|
+| `.id` | `str` | Branch ID, unique per `(stream_id, branch_id)` |
+| `.stream_id` | `str` | Stream this branch belongs to |
+| `.parent_id` | `str` | Parent branch ID (`"main"` for root branches) |
+| `.parent_version` | `int` | Version of parent at fork point (0 for root) |
+| `.description` | `str \| None` | Human-readable branch description |
+| `.lifecycle` | `str` | `"ephemeral"` \| `"promoted"` \| `"dead_end"` |
+| `.created_at` | `int` | Creation timestamp (microseconds since Unix epoch) |
+| `.closed_at` | `int \| None` | Closure timestamp; present when lifecycle is not `"ephemeral"` |
+| `.closed_reason` | `str \| None` | Reason passed to `promote_branch` / `mark_branch_dead_end` |
+| `.alternatives()` | `Any \| None` | JSON alternatives recorded at creation; method (not property) in Python |
+
+Note: the field names are `.id` and `.lifecycle` — not `.branch_id` or `.status`.
+
+### Default branch convention
+
+The implicit `main` trunk is not stored in the `branches` table. `list_branches` returns only explicitly created diverged branches; it returns an empty list for a stream that exists but has never had a branch forked from it.
+
+Callers must not treat an empty `list_branches` result as an indication that the stream has no events or that `main` does not exist. The main trunk is always accessible via `read_range(..., branch="main")` regardless of what `list_branches` returns.
+
 ---
 
 ## 9. Deletion Model
@@ -836,7 +865,7 @@ store.purge_event(
 )
 ```
 
-`confirm` must be the literal string `"I understand this breaks replay-from-zero"`. Any other value raises `PurgeConfirmationError`. The function logs at WARN level with a full stack trace on every call. A `Purged` event is appended **before** the original row is deleted, so the purge is itself permanently recorded:
+`confirm` must be the literal string `"I understand this breaks replay-from-zero"`. Any other value raises `PurgeConfirmationError`. The function logs at WARN level with a full stack trace on every call. A `Purged` audit event is appended to the `_fossic/system` stream **before** the original event is removed from the read path, so the purge is itself permanently recorded:
 
 ```json
 {
@@ -852,7 +881,7 @@ store.purge_event(
 
 The original payload is **not** included in the `Purged` event — that's the point.
 
-Consumers of the unified timeline see the `Purged` event in the stream and can handle the gap gracefully. Replay-from-zero is structurally broken for that stream (one event is missing); downstream reducers should treat the `Purged` event as a "skip and continue" signal in their pattern matching.
+After purge, `read_one(event_id)` returns `None` and `read_range` does not include the event — it is removed from the read path entirely. The `Purged` audit event lives in `_fossic/system` (see §9.4), not in the original stream. Replay-from-zero is structurally broken for that stream (one event is missing); consumers reading `_fossic/system` can detect and account for the gap.
 
 ### 9.4 `_fossic/system` stream event conventions
 
@@ -1040,7 +1069,7 @@ These invariants are structural — enforced by the API surface, not by discipli
 5. **Reducers are pure synchronous functions.** Trait shape forbids `&mut self`, async, and I/O. A reducer that calls into the store is misshapen.
 6. **`indexed_tags` is a JSON object.** Arrays and scalars are rejected at append time.
 7. **Stream IDs must be declared.** Append to undeclared stream raises.
-8. **`Purge` events always precede the row deletion.** The act of purging is itself permanently recorded.
+8. **Purge removes an event from the read path entirely.** `read_one` returns `None`; `read_range` skips it. The `Purged` audit event in `_fossic/system` always precedes the read-path removal and is the permanent record.
 9. **Branches are pointers, not copies.** Branch creation does not duplicate parent events.
 10. **Fossic does not write to source data.** When fossic surfaces events from a Cerebra `inspector_events` row via a read adapter, the adapter never writes back.
 

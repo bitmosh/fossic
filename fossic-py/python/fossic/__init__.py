@@ -277,6 +277,26 @@ class Store:
         to_version: int,
         callable: Callable[[Any], Any],
     ) -> None:
+        """Register a callable that upcasts event payloads at read time.
+
+        The callable signature is ``(payload: dict) -> dict`` — NOT
+        ``(event_type, payload)``. It receives the deserialized payload dict
+        and must return the upcast payload dict.
+
+        **Registration is per (event_type, from_version, to_version) triple.**
+        Register one upcaster per version gap. Upcasters chain automatically:
+        an event at ``type_version=1`` with registered upcasters ``1→2`` and
+        ``2→3`` is upcast through both before reaching a reducer.
+
+        **Upcasters fire at read time, not write time.** Stored events keep
+        their original bytes and CCE-derived identity. Upcasting changes what
+        a reducer sees but does not alter the stored payload or the event ``id``.
+
+        **Chain gaps raise at read time.** If there is no upcaster covering an
+        intermediate version step (e.g. ``1→2`` and ``3→4`` are registered but
+        ``2→3`` is missing), reading an event at version 1 raises
+        ``UpcasterChainGapError``.
+        """
         self._inner.register_upcaster(event_type, from_version, to_version, callable)
 
     def register_payload_transform(
