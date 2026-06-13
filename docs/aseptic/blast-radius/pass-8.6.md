@@ -1,15 +1,25 @@
 ---
 pass: 8.6
-version: v0.8.6
+version: v0.8.2
+sha: 5c57678
 date: 2026-06-12
 summary: fossic-py test suite debt — 27 failing tests resolved; 2 real bugs documented
 ---
 
-# Blast Radius — Pass 8.6 (v0.8.6)
+# Blast Radius — Pass 8.6 (v0.8.2)
 
 ## Files
 
-### Modified
+### Created (actual commit 5c57678)
+- `docs/aseptic/blast-radius/pass-8.6.md` — this file (retroactive blast-radius artifact)
+
+> **Note (retroactive commit walkthrough):** Source code changes for this pass
+> (7 `fossic-py/tests/` files rewritten + `fossic-py/python/fossic/__init__.py` docstring)
+> are not represented in the git history. The retroactive commit walkthrough committed all
+> Python test files at their post-v0.10.x final state in the v0.5.0 commit (6bf6a54).
+> The test corrections described below are accurate to what this pass delivered.
+
+### Modified (historical — not in git diff, represented in v0.5.0 commit)
 - `fossic-py/tests/test_append_read.py` — fixed `eid.bytes` → `eid.as_bytes()`;
   `ev.event_id` → `ev.id`
 - `fossic-py/tests/test_branches.py` — full rewrite: `from_branch=` → `parent_id=`;

@@ -1,6 +1,6 @@
 ---
 title: Deviation — Living Report
-last_reviewed: v0.10.x
+last_reviewed: v0.10.w
 ---
 
 # Deviation — Living Report
@@ -74,10 +74,18 @@ or "not readable." Choosing the fully-removed model makes the consumer's guarant
 clear: after purge, the payload is gone from the read path. The audit trail lives in
 the system stream.
 
-**Status:** OPEN — spec should be updated. Recommended change: replace "tombstone"
-language in §9.1 and §9.3 with "removes from read path" language. Add a note that
-the purge is recorded in `_fossic/system` for audit purposes but that the event
-payload is not accessible via normal `read_one`/`read_range` after purge.
+**Status:** OPEN — spec change not yet landed (resolution pending v0.10.v spec clarification pass).
+
+**Decision (2026-06-12):** User decision: spec section §9.3 wording will change from
+"tombstones a single event" to "removes a single event from the read path" with
+clarification that the audit record persists in `_fossic/system`. Implementation
+behavior is correct as-is. Resolution requires the spec clarification pass
+(anticipated v0.10.v) — do not mark resolved until that pass lands.
+
+Recommended spec change: replace "tombstone" language in §9.1 and §9.3 with
+"removes from read path" language. Add a note that the purge is recorded in
+`_fossic/system` for audit purposes but that the event payload is not accessible
+via normal `read_one`/`read_range` after purge.
 
 **Adjacent impact:** Any consumer that assumed `read_one` would return a
 "redacted-payload" event after purge (rather than None) would be silently broken.

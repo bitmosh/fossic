@@ -1,27 +1,37 @@
 ---
 pass: 9
 version: v0.9.0
-date: "(retroactive estimate, not verified)"
-summary: Tilde expansion in Python binding open(); FOSSIC_V1_SPEC.md initial authoring or major revision
+sha: a10f7b3
+date: 2026-06-12
+summary: Glob subscriptions, tilde expansion, cursor alignment; platform ADRs and phase definitions
 ---
 
 # Blast Radius — Pass 9 (v0.9.0)
 
-> All items in this file are retroactive estimates created at the Aseptic bootstrap
-> (Pass v0.10.x). Verify against git log before trusting as precise record.
->
-> The specific scope of Pass 9 is uncertain. Known outputs: tilde expansion was
-> added to the Python binding's `Store.open()` path; the spec document may have
-> received a major revision. Other changes may exist that are not captured here.
+> Retroactive file, aligned to actual commit in Pass v0.10.w.
+> Header and Files section updated; content below reflects what the pass delivered.
 
 ## Files
 
-### Modified
-- `fossic-py/src/store.rs` — `open()` method: expand `~` paths before passing to
-  SQLite (`PathBuf::from(path).expand_home()` or equivalent)
-- `docs/implement/FOSSIC_V1_SPEC.md` — significant revision or initial authoring
-  (retroactive estimate — spec document appears to have been formalized around this
-  time; may have been a dedicated doc pass)
+### Created (actual commit a10f7b3)
+- `docs/PHASES.md` — platform phase definitions (Phase 0–12) with exit criteria
+- `docs/adr/ADR-001-lattica-extends-lumaweave.md` — platform ADR: Lattica extends LumaWeave
+- `docs/adr/ADR-002-es-toolkit-over-nats.md` — platform ADR: ES toolkit choice
+- `docs/adr/ADR-003-eval-core-standalone.md` — platform ADR: eval-core standalone
+- `docs/adr/ADR-004-policy-scout-governance-scope.md` — platform ADR: Policy Scout scope
+- `docs/adr/ADR-005-cerebra-api-surface.md` — platform ADR: Cerebra API surface
+- `docs/adr/ADR-006-monorepo-structure.md` — platform ADR: pnpm/uv monorepo
+- `docs/adr/ADR-007-lumashell-pattern-absorption.md` — platform ADR: LumaShell absorption
+- `docs/adr/ADR-008-phase-12-research-exploration.md` — platform ADR: Phase 12 scope
+- `docs/aseptic/blast-radius/pass-09.md` — this file (retroactive blast-radius artifact)
+- `docs/aseptic/cross-pollination/pass-09.md` — consumer notification for tilde expansion
+
+> **Note (retroactive commit walkthrough):** Source code changes for this pass
+> (`fossic-py/src/store.rs` tilde expansion, `src/subscriptions.rs` glob pattern
+> support, `fossic-node/src/store.rs` cursor alignment fix) are not represented in
+> the git history. The retroactive commit walkthrough committed those source files at
+> their post-v0.10.x final state in the v0.3.0, v0.5.0, and v0.8.0 commits respectively.
+> The behavioral and API changes described below are accurate to what this pass delivered.
 
 ---
 

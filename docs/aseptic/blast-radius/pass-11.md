@@ -1,9 +1,14 @@
 ---
 pass: 11
 version: v0.11.0
-date: "(retroactive estimate, not verified)"
+sha: 7323f09
+date: 2026-06-12
 summary: Threading model spec correction — §14 rewritten; tokio_handle removed; Tokio myth dispelled
 ---
+
+> **Note:** No standalone v0.11.0 git tag exists. Pass 11 was incorporated into the v0.10.x
+> retroactive commit (7323f09) alongside the Aseptic bootstrap. SHA and date reflect
+> that commit. (retroactive — Aseptic not yet active)
 
 # Blast Radius — Pass 11 (v0.11.0)
 

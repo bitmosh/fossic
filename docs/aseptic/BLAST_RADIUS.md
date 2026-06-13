@@ -141,12 +141,25 @@ explicit.
 
 ---
 
-## Retroactive blast-radius files
+## Retroactive files
 
-Passes 1–11 have retroactive blast-radius files in `blast-radius/`. These were created
-at the Aseptic bootstrap (Pass v0.10.x) as historical reference and format test material.
-Items marked `(retroactive estimate, not verified)` reflect reasonable inference from
-git history and conversation context, not verified inspection of the actual commit diff.
+Blast-radius files generated before Aseptic was live in this project may include
+"(retroactive — Aseptic not yet active)" or similar markers in headers and section
+labels. These markers indicate the file was reconstructed from project history rather
+than filed at pass-completion time, and have lower confidence than live-filed reports.
 
-Retroactive files are useful for understanding the system's evolution but should not be
-trusted as precise records. For any retroactive item that matters, verify against git log.
+Retroactive files SHOULD still follow the canonical format above where possible. Cases
+where canonical fields cannot be reconstructed from history should be marked "(unknown)"
+or "(approximate)" rather than fabricated.
+
+Future passes file live and do not use the retroactive marker. The presence of the
+marker on a file means: this is historical reference material, treat with appropriate
+epistemic humility.
+
+**Retroactive commit walkthrough note:** In fossic, the v0.10.w realignment pass
+updated retroactive files to include real SHAs and commit dates from the retroactive
+git walkthrough. The Files sections in those files reflect what was actually in the
+corresponding git commit — which may differ from the features the pass delivered,
+because source files were committed at their post-v0.10.x final state in the earliest
+retroactive commit that introduced them. Where this divergence exists, the blast-radius
+file notes it explicitly.

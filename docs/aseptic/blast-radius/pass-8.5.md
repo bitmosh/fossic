@@ -1,25 +1,28 @@
 ---
 pass: 8.5
 version: v0.8.1
-date: "(retroactive estimate, not verified)"
+sha: 78760c8
+date: 2026-06-12
 summary: Node subscriptions — Symbol.asyncIterator via JS wrapper class; AsyncDispose support
 ---
 
 # Blast Radius — Pass 8.5 (v0.8.1)
 
-> All items in this file are retroactive estimates created at the Aseptic bootstrap
-> (Pass v0.10.x). Verify against git log before trusting as precise record.
+> Retroactive file, aligned to actual commit in Pass v0.10.w.
+> Header and Files section updated; content otherwise correct.
 
 ## Files
 
-### Created
-- `fossic-node/index.js` — JS wrapper class exposing `[Symbol.asyncIterator]()` and
-  `[Symbol.asyncDispose]()` on subscription handles
+### Created (actual commit 78760c8)
+- `docs/aseptic/blast-radius/pass-8.5.md` — this file (retroactive blast-radius artifact)
+- `docs/aseptic/cross-pollination/pass-8.5.md` — LumaWeave notification for Symbol.asyncIterator fix
 
-### Modified
-- `fossic-node/src/store.rs` — subscribe() returns raw handle wrapped by the JS layer
-- `docs/implement/FOSSIC_V1_SPEC.md` — §4.3 updated to document JS wrapper pattern
-  (retroactive estimate — may have been a separate doc pass)
+> **Note (retroactive commit walkthrough):** Source code changes for this pass
+> (`fossic-node/index.js` JS wrapper, `fossic-node/src/store.rs` subscribe() update,
+> `docs/implement/FOSSIC_V1_SPEC.md` §4.3 correction) are not represented in the git
+> history. The retroactive commit walkthrough committed all source files at their
+> post-v0.10.x final state in the v0.8.0 commit (26001a1). The behavioral and API
+> changes described below are accurate to what this pass delivered.
 
 ---
 

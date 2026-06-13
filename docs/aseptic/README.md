@@ -1,7 +1,7 @@
 ---
 title: Aseptic Methodology — fossic Working Copy
-status: bootstrapped
-version: v0.10.x
+status: live
+version: v0.10.w
 ---
 
 # Aseptic — fossic Working Files
@@ -64,8 +64,8 @@ Every pass produces a `blast-radius/pass-NN.md` at completion. Passes with meani
 adjacent-project impact also produce a `cross-pollination/pass-NN.md`. These feed the
 PASS COMPLETE message and inform supervisor passes.
 
-Retroactive files for Passes 1–11 are in `blast-radius/` and `cross-pollination/` as
-historical reference and format test material.
+Retroactive files for Passes 1–11 are in `blast-radius/` and `cross-pollination/`.
+Headers were realigned to real SHAs and dates in Pass v0.10.w.
 
 ---
 

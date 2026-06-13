@@ -4,6 +4,23 @@ title: ADR Format — Agent-Friendly Template
 
 # ADR Format — Agent-Friendly Template
 
+## Namespace
+
+Fossic-specific ADRs use the **ADR-F-NNN** prefix (e.g., ADR-F-001, ADR-F-002). This
+namespace is distinct from the platform ADRs in `docs/adr/` (ADR-001 through ADR-008),
+which document Lattica's cross-project architectural decisions.
+
+The split exists because fossic is a publishable library; its architectural decisions
+should live in fossic's own decision stream, not be conflated with consumer-project
+decisions. Platform ADRs describe how Lattica uses fossic; fossic ADRs describe how
+fossic is built internally.
+
+Fossic-specific ADRs live in `docs/aseptic/adr/` (create the directory when the first
+ADR is authored). Platform ADRs continue to live in `docs/adr/`. Use zero-padded
+three-digit numbering (ADR-F-001, not ADR-F-1) to allow up to 999 fossic ADRs.
+
+---
+
 The format that survives parallel execution. Conventional ADRs are written for humans:
 narrative context, trade-off analysis, a decision sentence. Aseptic ADRs layer two sections
 on top: **agent-facing** (strictly enforceable) and **human-facing** (conversational).
@@ -83,7 +100,7 @@ What downstream work this decision enables. What it constrains. What debt it cre
 ## Example ADR — adapted from fossic invariant §16.4
 
 ```markdown
-# ADR-F1: Snapshots Are Never Authoritative
+# ADR-F-001: Snapshots Are Never Authoritative
 
 **Status:** Accepted
 **Date:** 2026-05-01
@@ -118,7 +135,7 @@ Files this decision PROHIBITS modification of (without revisiting this ADR):
   doing so would couple write correctness to snapshot state
 
 Other ADRs this decision depends on:
-- ADR-F2 (v0.3.0) — CCE identity: snapshot correctness depends on event identity
+- ADR-F-002 (v0.3.0) — CCE identity: snapshot correctness depends on event identity
   being content-addressed (a snapshot at version N reflects the exact CCE-addressed
   events 1…N, not a mutable sequence)
 
