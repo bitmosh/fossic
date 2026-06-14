@@ -576,6 +576,8 @@ Emitted alongside `OutcomeRecorded` when `error_classification` is `severe`. All
 
 ### 7.5 Control decisions
 
+> **Causation topology for catalyst events:** When the Clutch escalates (`escalate_to_catalyst: true`), the catalyst sub-flow (`CatalystInvoked → CatalystArmSelected`) is a **sibling branch** from `ClutchDecisionMade`, not a continuation of the step's main causal chain. `ClutchDecisionMade` remains the causation parent of whatever action event follows (`LeewayGrantApplied`, `MemoryWriteFromCycle`, etc.); the catalyst events form their own chain off `ClutchDecisionMade`. When walking causation for cross-stream visualization, the catalyst sub-chain is a sibling branch, not main-line.
+
 #### 7.5.1 `ClutchDecisionMade`
 
 The Clutch evaluated signals plus prediction error plus working memory state and produced a typed action decision.
@@ -589,10 +591,10 @@ The Clutch evaluated signals plus prediction error plus working memory state and
   "action": "string",                 // "accept" | "refine" | "critique" | "explore" | "branch"
                                       // | "retrieve_more" | "consolidate" | "ask_user" | "pause" | "stop"
   "rule_matched": "string",           // name of the Clutch rule that fired
+  "cascade_depth": int,               // 0-indexed position of the matching rule; equals len(rules) when no rule matched
+  "escalate_to_catalyst": bool,       // true only when no rule matched; false otherwise
   "decided_at": int,
-  "cascade_depth": int?,              // how many rules evaluated before one fired
-  "escalate_to_catalyst": bool?,      // true if action requires Catalyst arm selection
-  "evaluation_id": "string?"          // links to EvaluationComposed that informed the decision
+  "evaluation_id": "string"           // links to EvaluationComposed that informed the decision
 }
 ```
 
@@ -600,44 +602,56 @@ The Clutch evaluated signals plus prediction error plus working memory state and
 
 #### 7.5.2 `CatalystInvoked`
 
-The Catalyst was called to select a strategy when the Clutch escalated.
+The Catalyst was called to select a strategy arm when the Clutch escalated. Emitted immediately before `CatalystEngine.select()` is called.
 
 ```json
 {
   "session_id": "string",
   "cycle_id": "string",
   "step_id": "string",
-  "invocation_id": "string",
-  "vocabulary_size": int,             // number of arms in the catalyst vocabulary
-  "invoked_at": int,
-  "triggering_clutch_decision_id": "string?",
-  "leeway_filtered_vocabulary_size": int? // vocabulary size after leeway pre-filtering
+  "invoked_at": int                   // Unix epoch milliseconds
 }
 ```
 
-**Determinism:** `true` — bookkeeping. **Causation:** `ClutchDecisionMade` with `escalate_to_catalyst: true`.
+**Determinism:** `true` — bookkeeping. **Causation:** Auto-chained from `ClutchDecisionMade` (via `EventEmitter._last_event_id` at the emission point). `cascade_depth` and `escalate_to_catalyst` on the triggering `ClutchDecisionMade` are the reliable cross-reference; no explicit `causation_id` argument is set at the call site.
 
 #### 7.5.3 `CatalystArmSelected`
 
-The Catalyst's bandit selected a strategy arm.
+The Catalyst's bandit selected a strategy arm (or determined no arm was available). Two emission paths depending on `CatalystEngine.select()` result.
+
+**Path A — arm selected** (`selection_reason: "forced_exploration"` or `"scored"`):
 
 ```json
 {
   "session_id": "string",
   "cycle_id": "string",
   "step_id": "string",
-  "invocation_id": "string",
-  "arm_name": "string",               // selected strategy
-  "arm_score": float,                 // the multi-factor score that contributed to selection
-  "selection_method": "string",       // "weighted_random" for v0.1
-  "selected_at": int,
-  "arm_stats_pre": "dict?",           // arm's stats before this selection (for replay)
-  "tau": float?,                      // temperature parameter if used
-  "all_arm_scores": "dict?"           // full distribution for diagnostic purposes
+  "arm_id": "string",                 // arm's declared arm_id from cycle config
+  "arm_type": "string",               // arm's type field ("verification", "structuring", "estimation", …)
+  "mapped_action": "string",          // the CLUTCH_ACTION this arm maps to (e.g. "refine")
+  "selection_reason": "string",       // "forced_exploration" (zero prior selections) or "scored" (bandit scored)
+  "score": float,                     // composite bandit score: base_reward × type_penalty × confidence_ramp;
+                                      // 0.0 on forced exploration
+  "selected_at": int                  // Unix epoch milliseconds
 }
 ```
 
-**Determinism:** `false` — `weighted_random` sampling is stochastic. **Causation:** `CatalystInvoked` for the same `invocation_id`.
+**Path B — cannot select** (empty arm vocabulary; `selection_reason: "no_arms"`):
+
+```json
+{
+  "session_id": "string",
+  "cycle_id": "string",
+  "step_id": "string",
+  "arm_id": null,
+  "selection_reason": "no_arms",
+  "selected_at": int
+}
+```
+
+> **Note on `score_components`:** The `CatalystSelection` dataclass carries `score_components: dict[str, float]` with `base_reward`, `type_penalty`, and `confidence_ramp` individually. This field is **not emitted** to fossic in v0.1. Decomposed score diagnostics are a v0.2 gap.
+
+**Determinism:** `false` (Path A, `weighted_random` sampling is stochastic) / `true` (Path B, deterministic). **Causation:** Auto-chained from `CatalystInvoked` for the same step (via `EventEmitter._last_event_id` at emission).
 
 ### 7.6 Safety gate
 
@@ -845,9 +859,9 @@ The span hierarchy for Cerebra cycle events is: **session → cycle → step**. 
 | `EvaluationComposed` | (span event on step span) | `gen_ai.cerebra.evaluation_id`, `gen_ai.cerebra.composite_score`, `gen_ai.cerebra.composite_floor_violated` |
 | `OutcomeRecorded` | (span event on step span) | `gen_ai.cerebra.outcome_id`, `gen_ai.cerebra.prediction_error`, `gen_ai.cerebra.error_classification` |
 | `PredictionSevereMiss` | (span event on step span, sets step span status to warn) | `gen_ai.cerebra.prediction_error`, `gen_ai.cerebra.expected`, `gen_ai.cerebra.actual` |
-| `ClutchDecisionMade` | (span event on step span) | `gen_ai.cerebra.action`, `gen_ai.cerebra.rule_matched`, `gen_ai.cerebra.escalate_to_catalyst` |
-| `CatalystInvoked` | INTERNAL (sub-span begin) | `gen_ai.cerebra.invocation_id`, `gen_ai.cerebra.vocabulary_size`, `gen_ai.cerebra.leeway_filtered_vocabulary_size` |
-| `CatalystArmSelected` | INTERNAL (sub-span end) | `gen_ai.cerebra.arm_name`, `gen_ai.cerebra.arm_score`, `gen_ai.cerebra.selection_method` |
+| `ClutchDecisionMade` | (span event on step span) | `gen_ai.cerebra.action`, `gen_ai.cerebra.rule_matched`, `gen_ai.cerebra.clutch.cascade_depth`, `gen_ai.cerebra.clutch.escalate_to_catalyst` |
+| `CatalystInvoked` | INTERNAL (sub-span begin) | `gen_ai.cerebra.session_id`, `gen_ai.cerebra.cycle_id`, `gen_ai.cerebra.step_id` |
+| `CatalystArmSelected` | INTERNAL (sub-span end) | `gen_ai.cerebra.arm_id`, `gen_ai.cerebra.arm_type`, `gen_ai.cerebra.score`, `gen_ai.cerebra.selection_reason` |
 | `LeewayGrantApplied` | (span event on step span) | `gen_ai.cerebra.proposed_action`, `gen_ai.cerebra.final_decision`, `gen_ai.cerebra.grants_applied` |
 | `ContinuationBundleCreated` | (span event on step span) | `gen_ai.cerebra.bundle_id`, `gen_ai.cerebra.recursion_depth`, `gen_ai.cerebra.bundle_size_bytes` |
 | `ReinjectionTriggered` | INTERNAL (single span; links to child session span) | `gen_ai.cerebra.child_session_id`, `gen_ai.cerebra.trigger_reason`, `gen_ai.cerebra.recursion_cap_hit` |
