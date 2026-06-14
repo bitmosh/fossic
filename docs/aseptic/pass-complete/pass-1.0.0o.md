@@ -84,7 +84,7 @@ Highlights:
 Learnings:
 · Stream key errors are invisible until a consumer tries to subscribe — cross-project confirmation (Cerebra → 3-way session → Lattica → Fossic) is the only reliable detection path for this class of spec error
 
-Commit: pending
+Commit: 8abbb8e
 Tests: n/a · docs-only pass
 Branch: clean
 ```

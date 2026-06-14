@@ -1,7 +1,7 @@
 ---
 pass: v1.0.0o
 version: v1.0.0o
-sha: pending
+sha: 8abbb8e
 date: 2026-06-14
 summary: AGENT_TRACE_VOCABULARY.md corrections — stream key, CatalystArmSelected score_components, ReinjectionTriggered schema, OTel fix
 ---
