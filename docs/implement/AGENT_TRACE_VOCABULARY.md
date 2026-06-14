@@ -1,6 +1,6 @@
 # Agent Trace Vocabulary
 
-**Status:** v1 specification · 2026-06-12
+**Status:** v1 specification · v1.0.0o · 2026-06-14
 **Scope:** Standard event types fossic ships for agent trace recording, the per-tool determinism registry, the rhyzome, bons.ai, and Cerebra extensions, and the OpenTelemetry GenAI span mapping.
 
 ---
@@ -31,6 +31,8 @@ When consumers ship new vocabularies, they:
 3. Flag any event-name overlaps with other consumers, with a one-line note about the semantic difference.
 
 The prefix convention prevents namespace collision; the registry prevents semantic confusion.
+
+**Scope note:** This registry covers `agent-trace`-tier streams — cognitive execution traces for reasoning loops. Governance and audit event vocabularies (events on `policy-scout/audit/*`, `policy-scout/approval/*`, etc.) live in sibling vocabulary files in the same directory, not in this document. The planned `POLICY_SCOUT_EVENT_VOCABULARY.md` is the first such sibling; it follows the same section structure as this document (consumer registry, event schemas per section, OTel mapping, extension guidance).
 
 ---
 
@@ -344,15 +346,15 @@ Confirms a fire-and-forget vector store write is auditable.
 
 These types are defined in Cerebra's codebase, not in fossic core. They are documented here for cross-project visibility. For the full required-vs-optional field rationale and `indexed_tags` recommendations, see `cerebra_phase6_event_vocabulary.md` in the Cerebra project.
 
-All 22 types are `type_version=1`. PascalCase names, past-tense verbs (event reports something that happened). All write to streams matching `cerebra/agent-trace/<cycle_id>` per the stream pattern lock in §7.1.
+All 22 types are `type_version=1`. PascalCase names, past-tense verbs (event reports something that happened). All write to streams matching `cerebra/agent-trace/<session_id>` per the stream pattern lock in §7.1.
 
 ### 7.1 Stream pattern lock
 
-Cerebra emits cycle runtime events to streams matching `cerebra/agent-trace/<cycle_id>`.
+Cerebra emits all agent-trace events to streams matching `cerebra/agent-trace/<session_id>`.
 
-- The `<cycle_id>` segment is a single-segment UUID — no embedded slashes, under 256 characters.
+- The `<session_id>` segment is a single-segment UUID — no embedded slashes, under 256 characters. A session spans multiple cycles (including re-injection children); all cycle events for a session share the same stream.
 - Subscribers to `*/agent-trace/*` receive Cerebra events alongside events from other consumers using the same `agent-trace` stream tier.
-- Forward-compat reservation: `cerebra/agent-trace/<cycle_id>/<sub_id>` is reserved for future sub-cycle event structure. Consumers should not treat the absence of sub-cycle streams as a guarantee.
+- Forward-compat reservation: `cerebra/agent-trace/<session_id>/<sub_id>` is reserved for future sub-session event structure. Consumers should not treat the absence of sub-session streams as a guarantee.
 - Cerebra also emits to `cerebra/lattice/<lineage_id>` streams with separate vocabulary. That vocabulary is documented in a forthcoming addendum covering Phase 8 lattice aggregate events; it is NOT part of this document.
 
 ### 7.2 Session and cycle lifecycle
@@ -363,7 +365,7 @@ Marks the start of a runtime session. Each session corresponds to one fossic str
 
 ```json
 {
-  "session_id": "string",             // UUID; also the stream's cycle_id segment
+  "session_id": "string",             // UUID; also the stream's session_id segment
   "goal": "string",                   // user-provided goal
   "cycle_config": "string",           // e.g., "simple.planning.v0"
   "vault_path": "string",
@@ -383,7 +385,7 @@ Marks the start of a cognitive cycle within a session. Bookend pair with `CycleC
 ```json
 {
   "session_id": "string",
-  "cycle_id": "string",               // the matching <cycle_id> from the stream pattern
+  "cycle_id": "string",               // cycle within the session; multiple cycles share the same stream
   "cycle_config": "string",
   "started_at": int,
   "step_index": int?                  // for cycles within a session; default 0
@@ -632,6 +634,7 @@ The Catalyst's bandit selected a strategy arm (or determined no arm was availabl
   "selection_reason": "string",       // "forced_exploration" (zero prior selections) or "scored" (bandit scored)
   "score": float,                     // composite bandit score: base_reward × type_penalty × confidence_ramp;
                                       // 0.0 on forced exploration
+  "score_components": null,           // v0.2 gap — key absent in v0.1; will carry {base_reward, type_penalty, confidence_ramp}
   "selected_at": int                  // Unix epoch milliseconds
 }
 ```
@@ -649,7 +652,7 @@ The Catalyst's bandit selected a strategy arm (or determined no arm was availabl
 }
 ```
 
-> **Note on `score_components`:** The `CatalystSelection` dataclass carries `score_components: dict[str, float]` with `base_reward`, `type_penalty`, and `confidence_ramp` individually. This field is **not emitted** to fossic in v0.1. Decomposed score diagnostics are a v0.2 gap.
+> **Note on `score_components` (v0.2 gap):** The `CatalystSelection` dataclass carries `score_components: dict[str, float]` with `base_reward`, `type_penalty`, and `confidence_ramp` individually. This key is **absent from the payload in v0.1** — do not assume its presence. Decomposed score diagnostics are a v0.2 addition.
 
 **Determinism:** `false` (Path A, `weighted_random` sampling is stochastic) / `true` (Path B, deterministic). **Causation:** Auto-chained from `CatalystInvoked` for the same step (via `EventEmitter._last_event_id` at emission).
 
@@ -705,21 +708,34 @@ A ContinuationBundle was distilled from the current cycle state for re-injection
 
 #### 7.7.2 `ReinjectionTriggered`
 
-A new continuation session is being spawned from a ContinuationBundle.
+Emitted on the **parent** session's stream when a closed cycle triggers re-injection. Fires at cycle close when `outcome="cap_reached"`, no step was accepted, the recursion depth limit has not been reached, and a matching `reinjection_triggers` predicate fires. When the depth limit blocks re-injection, **no event is emitted**.
 
 ```json
 {
-  "session_id": "string",             // the parent session
-  "cycle_id": "string",               // the parent cycle
-  "bundle_id": "string",
-  "child_session_id": "string",       // the new session about to open
-  "trigger_reason": "string",         // "context_budget" | "clutch_spawn" | "explicit_continuation"
-  "triggered_at": int,
-  "recursion_cap_hit": bool?          // true if this was the last allowed continuation
+  "session_id": "string",             // parent session_id
+  "cycle_id": "string",               // parent cycle_id (the cycle that just closed)
+  "trigger_predicate": "string",      // predicate name that fired; "max_steps_without_acceptance" in v0.1
+  "continuation_bundle_id": "string", // ID of the ContinuationBundle in Cerebra's continuation_bundles table
+  "child_session_id": "string",       // newly spawned child session_id
+  "recursion_depth": int,             // child's depth = parent_depth + 1; NOT the parent's depth
+  "triggered_at": int                 // Unix epoch milliseconds
 }
 ```
 
-**Determinism:** `true` — bookkeeping. **Causation:** `ContinuationBundleCreated` for the same `bundle_id`.
+**Field notes:**
+- `recursion_depth` is the **child's** depth. A top-level parent (depth 0) spawning its first child emits `recursion_depth: 1`.
+- `continuation_bundle_id` references the `continuation_bundles` table in Cerebra's database. Reading that row gives `distilled_goal`, `summarized_prior_prompt`, `next_focus`, and `recursion_depth` for visualization.
+- When re-injection is blocked by the recursion depth limit, **no `ReinjectionTriggered` is emitted**. The parent cycle's `SessionFlushed` is the last event on the stream. `ReinjectionBlocked` is planned for Cerebra v0.2.
+- v0.1 ships only `"max_steps_without_acceptance"` as a trigger predicate.
+
+**Causal chain (separate from the within-cycle Catalyst chain):**
+```
+SessionFlushed [auto-chained via EventEmitter._last_event_id]
+  → ReinjectionTriggered  (parent stream; this event)
+  → child SessionOpened   (new stream: cerebra/agent-trace/<child_session_id>)
+```
+
+**Determinism:** `true` — bookkeeping. **Causation:** Auto-chained from `SessionFlushed` (the immediately prior emit via `EventEmitter._last_event_id`), NOT from `ContinuationBundleCreated`.
 
 ### 7.8 Memory updates and session close
 
@@ -864,7 +880,7 @@ The span hierarchy for Cerebra cycle events is: **session → cycle → step**. 
 | `CatalystArmSelected` | INTERNAL (sub-span end) | `gen_ai.cerebra.arm_id`, `gen_ai.cerebra.arm_type`, `gen_ai.cerebra.score`, `gen_ai.cerebra.selection_reason` |
 | `LeewayGrantApplied` | (span event on step span) | `gen_ai.cerebra.proposed_action`, `gen_ai.cerebra.final_decision`, `gen_ai.cerebra.grants_applied` |
 | `ContinuationBundleCreated` | (span event on step span) | `gen_ai.cerebra.bundle_id`, `gen_ai.cerebra.recursion_depth`, `gen_ai.cerebra.bundle_size_bytes` |
-| `ReinjectionTriggered` | INTERNAL (single span; links to child session span) | `gen_ai.cerebra.child_session_id`, `gen_ai.cerebra.trigger_reason`, `gen_ai.cerebra.recursion_cap_hit` |
+| `ReinjectionTriggered` | INTERNAL (single span; links to child session span) | `gen_ai.cerebra.child_session_id`, `gen_ai.cerebra.trigger_predicate`, `gen_ai.cerebra.recursion_depth` |
 | `MemoryWriteFromCycle` | (span event on step span) | `gen_ai.cerebra.record_id`, `gen_ai.cerebra.write_reason` |
 | `ConsolidationStarted` | INTERNAL (consolidation span begin) | `gen_ai.cerebra.session_id`, `gen_ai.cerebra.consolidation_id`, `gen_ai.cerebra.session_event_count` |
 | `ConsolidationCompleted` | INTERNAL (consolidation span end) | `gen_ai.cerebra.summary_record_id`, `gen_ai.cerebra.consolidation_id` |
