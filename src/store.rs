@@ -377,7 +377,7 @@ impl Store {
         // unwrap_or(&-1) for unknown streams.
         let is_glob = q.stream_pattern.contains('*');
         let (initial_cursor, initial_stream_cursors) = if is_glob {
-            let conn = self.lock()?;
+            let conn = self.read_conn()?;
             let mut stmt = conn.prepare(
                 "SELECT stream_id, COALESCE(MAX(version), -1) \
                  FROM events WHERE branch = ?1 GROUP BY stream_id",
@@ -394,7 +394,7 @@ impl Store {
             }
             (-1i64, seed)
         } else {
-            let conn = self.lock()?;
+            let conn = self.read_conn()?;
             let cursor = conn.query_row(
                 "SELECT COALESCE(MAX(version), -1) \
                  FROM events WHERE stream_id = ?1 AND branch = ?2",

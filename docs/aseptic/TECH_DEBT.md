@@ -258,19 +258,14 @@ severity: LOW
 ---
 id: TD-008
 type: tech_debt
-status: open
+status: resolved
 pass_opened: v1.0.0w
+pass_resolved: v1.0.0y
 severity: LOW
 ---
 
-### TD-008 — `subscribe` glob seed query runs on write connection
+### ~~TD-008 — `subscribe` glob seed query runs on write connection~~
 
-**What it is:** When a glob subscription is created, `Store::subscribe` queries `MAX(version)` per matching stream to seed per-stream cursors. This query runs on the write connection (`self.lock()`) rather than a pool connection, briefly contending with concurrent appends.
+**What it is:** When a glob subscription is created, `Store::subscribe` queries `MAX(version)` per matching stream to seed per-stream cursors. This query ran on the write connection (`self.lock()`) rather than a pool connection, briefly contending with concurrent appends.
 
-**Why it was necessary:** The seed query was written in the same pass as glob cursor seeding (v1.0.0u), before the read pool existed (v1.0.0w). Switching it to `read_conn()` was noted as a deferred cosmetic cleanup.
-
-**Known cost:** Subscription setup is infrequent. A brief write-conn contention on glob subscribe creation is not a latency problem in practice. Correctness is unaffected.
-
-**Trigger:** Cosmetic cleanup pass, or if subscription setup latency becomes measurable. Fix: move the seed query block in `Store::subscribe` to `self.read_conn()`.
-
-**Evidence:** `src/store.rs` — `Store::subscribe` calls `self.lock()` for the seed query in the glob branch. See `docs/aseptic/blast-radius/pass-1.0.0w.md`.
+> **Resolved in v1.0.0y** — Both seed paths (glob `MAX(version) GROUP BY stream_id` and exact-stream `MAX(version)`) moved to `self.read_conn()`. See blast-radius/pass-1.0.0y.md.
