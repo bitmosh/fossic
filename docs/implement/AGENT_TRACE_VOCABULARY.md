@@ -1,6 +1,6 @@
 # Agent Trace Vocabulary
 
-**Status:** v1 specification · v1.0.0n · 2026-06-15
+**Status:** v1 specification · v1.0.0s · 2026-06-16
 **Scope:** Standard event types fossic ships for agent trace recording, the per-tool determinism registry, the rhyzome, bons.ai, and Cerebra extensions, and the OpenTelemetry GenAI span mapping.
 
 ---
@@ -750,20 +750,23 @@ SessionFlushed [auto-chained via EventEmitter._last_event_id]
 
 #### 7.8.1 `MemoryWriteFromCycle`
 
-The cycle wrote new content to memory (episodic record of cycle output).
+The cycle wrote new content to memory (episodic record of cycle output). **Now live as of Cerebra v0.4.0 (Phase 10)** — fires on every `EpisodeWriter.write()` call at cycle step cadence.
+
+> **Authoritative schema source:** `cerebra/docs/planning/AGENT_TRACE_VOCABULARY.md §8.2`. The schema below is a fossic-side mirror; if it diverges, Cerebra's §8.2 takes precedence.
 
 ```json
 {
   "session_id": "string",
   "cycle_id": "string",
   "step_id": "string",
-  "record_id": "string",              // new memory record created
-  "write_reason": "string",           // "accept" | "consolidate" | "branch_anchor"
-  "content_summary": "string",
-  "written_at": int,
-  "source_lineage": ["string"]?       // record IDs whose content contributed to this write
+  "record_id": "string",              // memory record written
+  "cited_record_ids": ["string"]      // records whose content was cited in this episode
 }
 ```
+
+**indexed_tags:** `{ "session_id": "string", "cycle_id": "string", "step_id": "string" }`
+
+**AggregateQuery note:** Use `indexed_tags_filter: {"session_id": "...", "cycle_id": "..."}` to isolate writes for a specific session or cycle. The flat-AND exact-match semantics (Phase 4A) cover all expected query shapes.
 
 **Determinism:** `false` — content depends on LLM output. **Causation:** `ClutchDecisionMade` with action `accept` or `consolidate`.
 
