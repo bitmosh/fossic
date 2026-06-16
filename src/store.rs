@@ -39,6 +39,29 @@ use crate::{
     wal_watch::WalWatcher,
 };
 
+// ── Read pool guard ───────────────────────────────────────────────────────────
+
+/// RAII guard for a pooled read connection. Returns the connection to the pool on drop.
+struct ReadGuard {
+    conn: Option<Connection>,
+    pool: crossbeam_channel::Sender<Connection>,
+}
+
+impl Drop for ReadGuard {
+    fn drop(&mut self) {
+        if let Some(conn) = self.conn.take() {
+            let _ = self.pool.send(conn);
+        }
+    }
+}
+
+impl std::ops::Deref for ReadGuard {
+    type Target = Connection;
+    fn deref(&self) -> &Connection {
+        self.conn.as_ref().unwrap()
+    }
+}
+
 // ── Internal state ────────────────────────────────────────────────────────────
 
 struct StoreInner {
@@ -56,6 +79,10 @@ struct StoreInner {
     branch_cache: RwLock<BTreeMap<(String, String), Vec<BranchSegment>>>,
     reducers: RwLock<ReducerRegistry>,
     similarity_provider: Option<Arc<dyn crate::similarity::SimilaritySearchProvider>>,
+    /// Pooled read connections. All pure-read methods acquire from here so they never
+    /// contend with the write mutex or with each other.
+    read_pool_rx: crossbeam_channel::Receiver<Connection>,
+    read_pool_tx: crossbeam_channel::Sender<Connection>,
 }
 
 // ── Public Store ──────────────────────────────────────────────────────────────
@@ -137,6 +164,21 @@ impl Store {
 
         let similarity_provider = options.similarity_provider.clone();
 
+        let pool_size = options.read_pool_size.max(1);
+        let (read_pool_tx, read_pool_rx) =
+            crossbeam_channel::bounded::<Connection>(pool_size);
+        for _ in 0..pool_size {
+            let rc = Connection::open(&path)?;
+            rc.execute_batch(
+                "PRAGMA journal_mode = WAL; \
+                 PRAGMA busy_timeout = 30000; \
+                 PRAGMA query_only = ON;",
+            )?;
+            read_pool_tx
+                .send(rc)
+                .map_err(|_| Error::Internal("read pool send failed during init".into()))?;
+        }
+
         Ok(Store {
             inner: Arc::new(StoreInner {
                 conn: Mutex::new(conn),
@@ -150,6 +192,8 @@ impl Store {
                 branch_cache: RwLock::new(BTreeMap::new()),
                 reducers: RwLock::new(ReducerRegistry::default()),
                 similarity_provider,
+                read_pool_rx,
+                read_pool_tx,
             }),
         })
     }
@@ -172,12 +216,12 @@ impl Store {
     }
 
     pub fn streams(&self) -> Result<Vec<StreamInfo>, Error> {
-        let conn = self.lock()?;
+        let conn = self.read_conn()?;
         streams_impl(&conn)
     }
 
     pub fn stream_exists(&self, stream_id: &str) -> Result<bool, Error> {
-        let conn = self.lock()?;
+        let conn = self.read_conn()?;
         stream_exists_impl(&conn, stream_id)
     }
 
@@ -377,7 +421,7 @@ impl Store {
 
     pub fn read_range(&self, q: ReadQuery) -> Result<Vec<StoredEvent>, Error> {
         let events = {
-            let conn = self.lock()?;
+            let conn = self.read_conn()?;
             read_range_impl(&conn, q)?
         };
         let upcasters = self
@@ -393,7 +437,7 @@ impl Store {
 
     pub fn read_one(&self, id: EventId) -> Result<Option<StoredEvent>, Error> {
         let event = {
-            let conn = self.lock()?;
+            let conn = self.read_conn()?;
             read_one_impl(&conn, id)?
         };
         match event {
@@ -421,7 +465,7 @@ impl Store {
     /// the input and call `read_batch` multiple times.
     pub fn read_batch(&self, ids: &[EventId]) -> Result<Vec<StoredEvent>, Error> {
         let events = {
-            let conn = self.lock()?;
+            let conn = self.read_conn()?;
             read_batch_impl(&conn, ids)?
         };
         let upcasters = self
@@ -441,7 +485,7 @@ impl Store {
         external_id: &str,
     ) -> Result<Option<StoredEvent>, Error> {
         let event = {
-            let conn = self.lock()?;
+            let conn = self.read_conn()?;
             read_by_external_id_impl(&conn, stream_id, external_id)?
         };
         match event {
@@ -464,7 +508,7 @@ impl Store {
         correlation_id: EventId,
     ) -> Result<Vec<StoredEvent>, Error> {
         let events = {
-            let conn = self.lock()?;
+            let conn = self.read_conn()?;
             read_by_correlation_impl(&conn, correlation_id)?
         };
         let upcasters = self
@@ -485,7 +529,7 @@ impl Store {
         max_depth: usize,
     ) -> Result<Vec<StoredEvent>, Error> {
         let events = {
-            let conn = self.lock()?;
+            let conn = self.read_conn()?;
             walk_causation_impl(&conn, start, direction, max_depth)?
         };
         let upcasters = self
@@ -509,7 +553,7 @@ impl Store {
             .upcasters
             .read()
             .map_err(|_| Error::Internal("upcasters lock poisoned".into()))?;
-        let conn = self.lock()?;
+        let conn = self.read_conn()?;
         aggregate_impl(&conn, query, agg, &upcasters)
     }
 
@@ -587,7 +631,7 @@ impl Store {
         stream_id: &str,
         branch: &str,
     ) -> Result<Option<u64>, Error> {
-        let conn = self.lock()?;
+        let conn = self.read_conn()?;
         get_cursor_impl(&conn, consumer_id, stream_id, branch)
     }
 
@@ -641,7 +685,7 @@ impl Store {
     /// Consumers wanting "is this an undiverged stream?" should check whether the
     /// returned slice is empty.
     pub fn list_branches(&self, stream_id: &str) -> Result<Vec<BranchInfo>, Error> {
-        let conn = self.lock()?;
+        let conn = self.read_conn()?;
         list_branches_impl(&conn, stream_id)
     }
 
@@ -660,7 +704,7 @@ impl Store {
         }
         // Resolve from DB.
         let chain = {
-            let conn = self.lock()?;
+            let conn = self.read_conn()?;
             resolve_branch_chain(&conn, stream_id, branch_id)?
         };
         // Insert into cache.
@@ -804,8 +848,10 @@ impl Store {
     pub fn take_snapshot(&self, stream_id: &str, branch: &str) -> Result<SnapshotInfo, Error> {
         let reducer = self.get_reducer(stream_id)?;
 
+        // TD-001: two separate acquisitions; a concurrent append between read and write
+        // could produce a snapshot that misses recent events. See blast-radius pass-1.0.0w.
         let (snapshot_version, state_bytes, events) = {
-            let conn = self.lock()?;
+            let conn = self.read_conn()?;
             let snap = find_latest_snapshot(
                 &conn,
                 stream_id,
@@ -872,7 +918,7 @@ impl Store {
         branch: &str,
         reducer_name: &str,
     ) -> Result<Option<SnapshotInfo>, Error> {
-        let conn = self.lock()?;
+        let conn = self.read_conn()?;
         snapshot_info_impl(&conn, stream_id, branch, reducer_name)
     }
 
@@ -900,7 +946,7 @@ impl Store {
         reducer_name: &str,
         state_schema_version: u32,
     ) -> Result<Option<(u64, Vec<u8>)>, Error> {
-        let conn = self.lock()?;
+        let conn = self.read_conn()?;
         find_latest_snapshot(&conn, stream_id, branch, reducer_name, state_schema_version, None)
     }
 
@@ -952,6 +998,22 @@ impl Store {
             .map_err(|_| Error::Internal("store mutex poisoned".to_string()))
     }
 
+    /// Acquire a read connection from the pool. Blocks up to 30s if all connections are busy.
+    fn read_conn(&self) -> Result<ReadGuard, Error> {
+        let pool_size = self.inner.options.read_pool_size.max(1);
+        self.inner
+            .read_pool_rx
+            .recv_timeout(std::time::Duration::from_millis(30_000))
+            .map(|conn| ReadGuard {
+                conn: Some(conn),
+                pool: self.inner.read_pool_tx.clone(),
+            })
+            .map_err(|_| Error::PoolExhausted {
+                pool_size,
+                timeout_ms: 30_000,
+            })
+    }
+
     /// Look up the reducer Arc for `stream_id`, or return `ReducerNotFound`.
     fn get_reducer(&self, stream_id: &str) -> Result<Arc<dyn BoxedReducer>, Error> {
         let reg = self
@@ -975,7 +1037,7 @@ impl Store {
         branch: &str,
         max_version: Option<u64>,
     ) -> Result<(Vec<u8>, Vec<StoredEvent>), Error> {
-        let conn = self.lock()?;
+        let conn = self.read_conn()?;
         let snap = find_latest_snapshot(
             &conn,
             stream_id,

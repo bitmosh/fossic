@@ -359,6 +359,7 @@ impl TryFrom<&PyOpenOptions> for OpenOptions {
             checkpoint_mode: CheckpointMode::Auto,
             on_first_open,
             similarity_provider: None,
+            read_pool_size: 4,
         })
     }
 }

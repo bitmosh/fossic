@@ -199,6 +199,11 @@ pub struct OpenOptions {
     /// Optional similarity search backend. `None` (default) means similarity queries return
     /// `Error::NotImplemented`. Inject a custom provider for semantic search on event payloads.
     pub similarity_provider: Option<std::sync::Arc<dyn crate::similarity::SimilaritySearchProvider>>,
+    /// Number of read connections opened at store startup and held in the pool.
+    /// Defaults to 4. All read methods (read_range, aggregate, etc.) draw from this pool
+    /// and return their connection on drop, so reads never block each other or the write path.
+    /// Minimum 1; values below 1 are clamped to 1.
+    pub read_pool_size: usize,
 }
 
 impl Default for OpenOptions {
@@ -208,6 +213,7 @@ impl Default for OpenOptions {
             checkpoint_mode: CheckpointMode::Auto,
             on_first_open: FirstOpenPolicy::CreateIfMissing,
             similarity_provider: None,
+            read_pool_size: 4,
         }
     }
 }

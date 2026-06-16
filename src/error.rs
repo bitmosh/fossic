@@ -77,6 +77,9 @@ pub enum Error {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("read pool exhausted: all {pool_size} connections busy after {timeout_ms}ms; increase OpenOptions::read_pool_size")]
+    PoolExhausted { pool_size: usize, timeout_ms: u64 },
+
     #[error("internal error: {0}")]
     Internal(String),
 }
