@@ -74,7 +74,7 @@ Highlights:
 Learnings:
 · cerebra/control is NOT covered by the */agent-trace/* glob — consumers must name it explicitly; documented this as a constraint in §7.1
 
-Commit: pending
+Commit: dac2b32
 Tests: n/a · docs-only pass
 Branch: clean
 ```

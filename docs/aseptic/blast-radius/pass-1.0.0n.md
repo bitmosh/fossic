@@ -1,7 +1,7 @@
 ---
 pass: v1.0.0n
 version: v1.0.0n
-sha: pending
+sha: dac2b32
 date: 2026-06-15
 summary: AGENT_TRACE_VOCABULARY.md — Cerebra daemon-v1 additions (PostureChanged, CheckpointSaved, cerebra/control stream)
 ---
