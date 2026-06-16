@@ -7,7 +7,7 @@ use std::{
 use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{
-    append::{append_batch_impl, append_impl, AppendOutcome},
+    append::{append_batch_impl, append_if_impl, append_impl, AppendOutcome},
     branches::{
         create_branch_impl, list_branches_impl, mark_branch_dead_end_impl, promote_branch_impl,
         resolve_branch_chain, BranchSegment,
@@ -251,6 +251,66 @@ impl Store {
         }
 
         Ok(ids)
+    }
+
+    /// Conditionally append a single event.
+    ///
+    /// `condition` is evaluated inside the IMMEDIATE transaction that would write
+    /// the event. If it returns `Ok(false)`, the transaction is rolled back and
+    /// `Ok(None)` is returned — no event is written and the stream version is
+    /// unchanged. If it returns `Ok(true)`, the append proceeds and `Ok(Some(id))`
+    /// is returned.
+    ///
+    /// The condition receives a `&rusqlite::Connection` (the in-progress transaction
+    /// dereffed) and may run any read queries. It must not write. Errors returned by
+    /// the condition propagate as `Err`.
+    ///
+    /// Typical use — compare-and-swap on stream version:
+    /// ```ignore
+    /// let id = store.append_if(a, |conn| {
+    ///     let v: i64 = conn.query_row(
+    ///         "SELECT COALESCE(MAX(version), -1) FROM events WHERE stream_id = ?1 AND branch = ?2",
+    ///         rusqlite::params!["my/stream", "main"],
+    ///         |r| r.get(0),
+    ///     )?;
+    ///     Ok(v == expected_version)
+    /// })?;
+    /// ```
+    pub fn append_if<F>(&self, a: Append, condition: F) -> Result<Option<EventId>, Error>
+    where
+        F: FnOnce(&rusqlite::Connection) -> Result<bool, Error>,
+    {
+        let has_subs = self.inner.sub_registry.has_subscribers();
+        let is_system = a.stream_id.starts_with("_fossic/");
+
+        let (payload_val, payload_bytes) =
+            self.prepare_payload(&a.stream_id, &a.event_type, &a.payload)?;
+
+        let (event_id_opt, post_commit) = {
+            let mut conn = self.lock()?;
+            let outcome =
+                append_if_impl(&mut conn, &a, payload_val, payload_bytes, condition)?;
+
+            match outcome {
+                None => (None, None),
+                Some(outcome) => {
+                    let stored = if outcome.is_new && has_subs && !is_system {
+                        let s = build_stored_event(&outcome, &a);
+                        self.inner.sub_registry.dispatch_sync(&s);
+                        Some(s)
+                    } else {
+                        None
+                    };
+                    (Some(outcome.event_id), stored)
+                }
+            }
+        }; // conn lock released
+
+        if let Some(s) = post_commit {
+            let _ = self.inner.dispatch_tx.send(s);
+        }
+
+        Ok(event_id_opt)
     }
 
     // ── Subscriptions ─────────────────────────────────────────────────────────

@@ -109,6 +109,102 @@ pub(crate) fn append_impl(
     })
 }
 
+/// Like `append_impl`, but evaluates `condition` inside the IMMEDIATE transaction
+/// before inserting. If `condition` returns `false`, the transaction is rolled back
+/// and `Ok(None)` is returned. If it returns `true`, the append proceeds normally.
+///
+/// The condition runs after stream-existence is verified but before version assignment
+/// and the INSERT. It receives a `&Connection` (actually the transaction dereffed) and
+/// may execute any read queries against the current committed + in-transaction state.
+/// It must not write.
+pub(crate) fn append_if_impl<F>(
+    conn: &mut Connection,
+    a: &Append,
+    payload: serde_json::Value,
+    payload_bytes: Vec<u8>,
+    condition: F,
+) -> Result<Option<AppendOutcome>, Error>
+where
+    F: FnOnce(&Connection) -> Result<bool, Error>,
+{
+    if let Some(ref tags) = a.indexed_tags {
+        if !tags.is_object() {
+            return Err(Error::InvalidIndexedTags {
+                got: match tags {
+                    serde_json::Value::Array(_) => "array",
+                    serde_json::Value::Bool(_) => "bool",
+                    serde_json::Value::Number(_) => "number",
+                    serde_json::Value::String(_) => "string",
+                    serde_json::Value::Null => "null",
+                    serde_json::Value::Object(_) => unreachable!(),
+                },
+            });
+        }
+    }
+
+    let causation_bytes = a.causation_id.as_ref().map(|id| *id.as_bytes());
+    let event_id_bytes = derive_event_id(
+        &a.event_type,
+        a.type_version,
+        causation_bytes.as_ref(),
+        &payload,
+    )?;
+    let event_id = EventId::from_bytes(event_id_bytes);
+
+    let indexed_tags_json = a.indexed_tags.as_ref().map(|t| t.to_string());
+    let timestamp_us = a.timestamp_us.unwrap_or_else(now_us);
+
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+
+    if !stream_exists_impl(&tx, &a.stream_id)? {
+        return Err(Error::StreamNotDeclared {
+            stream_id: a.stream_id.clone(),
+        });
+    }
+
+    if !condition(&tx)? {
+        // tx drops here, rolling back automatically (nothing was written)
+        return Ok(None);
+    }
+
+    let next_version: i64 = tx.query_row(
+        "SELECT COALESCE(MAX(version), -1) + 1 FROM events \
+         WHERE stream_id = ?1 AND branch = ?2",
+        rusqlite::params![a.stream_id, a.branch],
+        |r| r.get(0),
+    )?;
+
+    let rows_changed = tx.execute(
+        "INSERT OR IGNORE INTO events \
+         (id, stream_id, branch, version, timestamp_us, causation_id, correlation_id, \
+          event_type, type_version, payload, external_id, indexed_tags) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        rusqlite::params![
+            event_id,
+            a.stream_id,
+            a.branch,
+            next_version,
+            timestamp_us,
+            a.causation_id.as_ref(),
+            a.correlation_id.as_ref(),
+            a.event_type,
+            a.type_version,
+            payload_bytes,
+            a.external_id,
+            indexed_tags_json,
+        ],
+    )?;
+
+    tx.commit()?;
+    Ok(Some(AppendOutcome {
+        event_id,
+        version: next_version as u64,
+        timestamp_us,
+        payload_bytes: rmp_serde::to_vec(&payload).unwrap_or_default(),
+        is_new: rows_changed > 0,
+    }))
+}
+
 pub(crate) fn append_batch_impl(
     conn: &mut Connection,
     appends: &[Append],
