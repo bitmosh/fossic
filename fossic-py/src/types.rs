@@ -360,6 +360,7 @@ impl TryFrom<&PyOpenOptions> for OpenOptions {
             on_first_open,
             similarity_provider: None,
             read_pool_size: 4,
+            read_pool_timeout_ms: 30_000,
         })
     }
 }

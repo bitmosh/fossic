@@ -1,11 +1,15 @@
-use fossic::{Append, OpenOptions, ReadQuery, Store};
+use fossic::{Append, Error, OpenOptions, ReadQuery, Store};
 use std::sync::{Arc, Mutex};
 
 fn open_tmp_with_pool(pool_size: usize) -> (Store, tempfile::TempDir) {
+    open_tmp_with_pool_and_timeout(pool_size, 30_000)
+}
+
+fn open_tmp_with_pool_and_timeout(pool_size: usize, timeout_ms: u64) -> (Store, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(
         dir.path().join("test.db"),
-        OpenOptions { read_pool_size: pool_size, ..Default::default() },
+        OpenOptions { read_pool_size: pool_size, read_pool_timeout_ms: timeout_ms, ..Default::default() },
     )
     .expect("open store");
     (store, dir)
@@ -145,4 +149,29 @@ fn pool_connections_are_query_only() {
     append_n(&store, "pool/qo", 1);
     let events = store.read_range(ReadQuery::stream("pool/qo")).unwrap();
     assert_eq!(events.len(), 3);
+}
+
+#[test]
+fn pool_exhausted_returns_error() {
+    // pool_size: 1, timeout: 50ms. Hold the one connection in a thread for 200ms,
+    // then verify the main thread gets PoolExhausted within the timeout window.
+    let (store, _dir) = open_tmp_with_pool_and_timeout(1, 50);
+    decl(&store, "pool/ex");
+    append_n(&store, "pool/ex", 1);
+
+    let store2 = store.clone();
+    let handle = std::thread::spawn(move || {
+        store2._test_hold_read_conn(200);
+    });
+
+    // Give the thread a moment to acquire the connection before we compete.
+    std::thread::sleep(std::time::Duration::from_millis(5));
+
+    let result = store.read_range(ReadQuery::stream("pool/ex"));
+    assert!(
+        matches!(result, Err(Error::PoolExhausted { pool_size: 1, timeout_ms: 50 })),
+        "expected PoolExhausted {{ pool_size: 1, timeout_ms: 50 }}"
+    );
+
+    handle.join().unwrap();
 }

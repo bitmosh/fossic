@@ -204,6 +204,11 @@ pub struct OpenOptions {
     /// and return their connection on drop, so reads never block each other or the write path.
     /// Minimum 1; values below 1 are clamped to 1.
     pub read_pool_size: usize,
+    /// Maximum time in milliseconds to wait for a read connection from the pool.
+    /// Defaults to 30,000ms (30 seconds). If all connections are busy for longer than this,
+    /// read methods return `Error::PoolExhausted`. Set lower in tests to make exhaustion
+    /// observable without a 30-second wait.
+    pub read_pool_timeout_ms: u64,
 }
 
 impl Default for OpenOptions {
@@ -214,6 +219,7 @@ impl Default for OpenOptions {
             on_first_open: FirstOpenPolicy::CreateIfMissing,
             similarity_provider: None,
             read_pool_size: 4,
+            read_pool_timeout_ms: 30_000,
         }
     }
 }

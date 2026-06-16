@@ -230,17 +230,14 @@ and a no-just fallback block for contributors without `just` installed.
 ---
 id: PD-009
 type: polish_debt
-status: open
+status: resolved
 pass_opened: v1.0.0w
+pass_resolved: v1.0.0z
 severity: LOW
 ---
 
-### PD-009 — `PoolExhausted` not covered by integration tests
+### ~~PD-009 — `PoolExhausted` not covered by integration tests~~
 
-**What it is:** `Error::PoolExhausted` (returned after 30s `recv_timeout` when all pool connections are busy) has no integration test. Triggering it requires either holding all pool connections for 30 seconds or a configurable shorter timeout — neither is currently in `OpenOptions`.
+**What it is:** `Error::PoolExhausted` (returned after 30s `recv_timeout` when all pool connections are busy) had no integration test. Triggering it required either holding all pool connections for 30 seconds or a configurable shorter timeout — neither was in `OpenOptions`.
 
-**Where:** `src/error.rs` — `Error::PoolExhausted` variant. `src/store.rs` — `Store::read_conn()` hardcodes `Duration::from_millis(30_000)`.
-
-**Fix:** Add `OpenOptions::read_pool_timeout_ms: u64` (default 30_000). In `tests/read_pool.rs`, add a test that opens a `pool_size: 1, read_pool_timeout_ms: 50` store, holds the one connection in a thread, and asserts `read_range` returns `Err(Error::PoolExhausted { .. })`.
-
-**Trigger:** v1.0.0 polish pass, or when a consumer needs to validate `PoolExhausted` handling in their own test suite.
+> **Resolved in v1.0.0z** — Added `OpenOptions::read_pool_timeout_ms: u64` (default 30_000). Added `fossic::test-helpers` feature exposing `Store::_test_hold_read_conn(hold_ms)`. Added `pool_exhausted_returns_error` test in `tests/read_pool.rs`: pool_size 1, timeout 50ms, connection held 200ms → `Error::PoolExhausted { pool_size: 1, timeout_ms: 50 }`. See blast-radius/pass-1.0.0z.md.

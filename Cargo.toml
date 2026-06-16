@@ -26,6 +26,7 @@ agent-trace = []
 encryption = []
 similarity = []
 tauri = []
+test-helpers = []
 
 [dependencies]
 blake3             = "1"

@@ -998,20 +998,26 @@ impl Store {
             .map_err(|_| Error::Internal("store mutex poisoned".to_string()))
     }
 
-    /// Acquire a read connection from the pool. Blocks up to 30s if all connections are busy.
+    /// Acquire a read connection from the pool. Blocks up to `read_pool_timeout_ms` if all connections are busy.
     fn read_conn(&self) -> Result<ReadGuard, Error> {
         let pool_size = self.inner.options.read_pool_size.max(1);
+        let timeout_ms = self.inner.options.read_pool_timeout_ms;
         self.inner
             .read_pool_rx
-            .recv_timeout(std::time::Duration::from_millis(30_000))
+            .recv_timeout(std::time::Duration::from_millis(timeout_ms))
             .map(|conn| ReadGuard {
                 conn: Some(conn),
                 pool: self.inner.read_pool_tx.clone(),
             })
-            .map_err(|_| Error::PoolExhausted {
-                pool_size,
-                timeout_ms: 30_000,
-            })
+            .map_err(|_| Error::PoolExhausted { pool_size, timeout_ms })
+    }
+
+    /// Acquire a read connection and hold it for `hold_ms` milliseconds, then release.
+    /// Only available with the `test-helpers` feature; used to simulate pool exhaustion.
+    #[cfg(feature = "test-helpers")]
+    pub fn _test_hold_read_conn(&self, hold_ms: u64) {
+        let _guard = self.read_conn().expect("acquire read conn for test");
+        std::thread::sleep(std::time::Duration::from_millis(hold_ms));
     }
 
     /// Look up the reducer Arc for `stream_id`, or return `ReducerNotFound`.
