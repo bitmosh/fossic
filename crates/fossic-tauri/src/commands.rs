@@ -118,6 +118,28 @@ pub fn fossic_read_by_external_id(
         .map_err(FossicTauriError::from)
 }
 
+/// Fetch multiple events by their CCE event IDs in a single query.
+///
+/// `event_ids` is a JSON array of 64-character lowercase hex strings. Results
+/// are returned ordered by `timestamp_us ASC`; IDs not found are silently
+/// omitted. Keep batch sizes ≤ 4,096 IDs per call — SQLite caps bound
+/// parameters at 32,766 and exceeding it returns a `StorageError`.
+#[tauri::command]
+pub fn fossic_read_batch(
+    store: State<'_, Store>,
+    event_ids: Vec<String>,
+) -> Result<Vec<SerializedEvent>, FossicTauriError> {
+    let ids = event_ids
+        .iter()
+        .map(|s| EventId::from_hex(s))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(FossicTauriError::from)?;
+    store
+        .read_batch(&ids)
+        .map(|v| v.iter().map(SerializedEvent::from_stored).collect())
+        .map_err(FossicTauriError::from)
+}
+
 #[tauri::command]
 pub fn fossic_read_by_correlation(
     store: State<'_, Store>,

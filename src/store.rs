@@ -19,7 +19,7 @@ use crate::{
     cursors::{get_cursor_impl, set_cursor_impl},
     deletion::{purge_event_impl, shred_stream_impl},
     error::Error,
-    read::{read_by_external_id_impl, read_one_impl, read_range_impl},
+    read::{read_batch_impl, read_by_external_id_impl, read_one_impl, read_range_impl},
     reducers::{BoxedReducer, DynReducer, Reducer, ReducerRegistry, ReducerState},
     schema::{bootstrap_meta, bootstrap_system_streams, now_us, run_migrations},
     snapshots::{
@@ -328,6 +328,32 @@ impl Store {
                 Ok(Some(apply_upcaster(&upcasters, e)?))
             }
         }
+    }
+
+    /// Fetch multiple events by their CCE event IDs in a single query.
+    ///
+    /// Results are ordered by `timestamp_us ASC`. IDs not present in the store are
+    /// silently omitted — compare the returned `Vec` length against the input to
+    /// detect missing events. Upcasters are applied to every returned event.
+    ///
+    /// **SQLite parameter limit:** keep batch sizes ≤ 4,096 IDs per call.
+    /// SQLite allows at most 32,766 bound parameters per statement; exceeding it
+    /// returns a `StorageError`. Callers that need larger batches should chunk
+    /// the input and call `read_batch` multiple times.
+    pub fn read_batch(&self, ids: &[EventId]) -> Result<Vec<StoredEvent>, Error> {
+        let events = {
+            let conn = self.lock()?;
+            read_batch_impl(&conn, ids)?
+        };
+        let upcasters = self
+            .inner
+            .upcasters
+            .read()
+            .map_err(|_| Error::Internal("upcasters lock poisoned".into()))?;
+        events
+            .into_iter()
+            .map(|e| apply_upcaster(&upcasters, e))
+            .collect()
     }
 
     pub fn read_by_external_id(

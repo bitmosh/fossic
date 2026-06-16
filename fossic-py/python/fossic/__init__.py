@@ -263,6 +263,20 @@ class Store:
     def read_one(self, event_id: "EventId") -> "Optional[StoredEvent]":
         return self._inner.read_one(event_id)  # type: ignore[return-value]
 
+    def read_batch(self, ids: "list[EventId]") -> "list[StoredEvent]":
+        """Fetch multiple events by their CCE event IDs in a single query.
+
+        Results are returned ordered by ``timestamp_us ASC``, regardless of
+        the order IDs were supplied. IDs not present in the store are silently
+        omitted — compare ``len(result)`` against ``len(ids)`` to detect gaps.
+        Upcasters are applied to every returned event.
+
+        **Batch size:** keep calls to ≤ 4,096 IDs. SQLite caps bound parameters
+        at 32,766 per statement; exceeding it raises ``StorageError``. For larger
+        sets, chunk the input and call ``read_batch`` multiple times.
+        """
+        return self._inner.read_batch(ids)  # type: ignore[return-value]
+
     def read_by_external_id(
         self, stream_id: str, external_id: str
     ) -> "Optional[StoredEvent]":

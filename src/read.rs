@@ -85,6 +85,41 @@ pub(crate) fn read_one_impl(
     }
 }
 
+/// Fetch multiple events by their CCE event IDs in a single query.
+///
+/// Results are ordered by `timestamp_us ASC`. IDs not found in the store are
+/// silently omitted — callers that need to detect missing IDs should compare
+/// the returned count against the input length.
+///
+/// **SQLite parameter limit:** SQLite allows at most 32,766 bound parameters
+/// per statement. Callers are responsible for keeping batch sizes well below
+/// this ceiling; a reasonable operational limit is ≤ 4,096 IDs per call.
+/// Upcasters are applied by the `Store::read_batch` wrapper after this returns.
+pub(crate) fn read_batch_impl(
+    conn: &Connection,
+    ids: &[EventId],
+) -> Result<Vec<StoredEvent>, Error> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders: String = (1..=ids.len())
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT {SELECT_COLS} FROM events \
+         WHERE id IN ({placeholders}) \
+         ORDER BY timestamp_us ASC"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(ids), row_to_event)?;
+    let mut events = Vec::new();
+    for row in rows {
+        events.push(row?);
+    }
+    Ok(events)
+}
+
 pub(crate) fn read_by_external_id_impl(
     conn: &Connection,
     stream_id: &str,

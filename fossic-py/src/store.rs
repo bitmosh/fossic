@@ -287,6 +287,14 @@ impl PyStore {
             .map_err(to_py_err)
     }
 
+    fn read_batch(&self, ids: Vec<PyRef<PyEventId>>) -> PyResult<Vec<PyStoredEvent>> {
+        let rust_ids: Vec<fossic::EventId> = ids.iter().map(|e| e.inner).collect();
+        self.inner
+            .read_batch(&rust_ids)
+            .map(|v| v.into_iter().map(PyStoredEvent::from).collect())
+            .map_err(to_py_err)
+    }
+
     fn read_by_external_id(
         &self,
         stream_id: &str,
