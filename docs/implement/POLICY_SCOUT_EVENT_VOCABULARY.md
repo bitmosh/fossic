@@ -196,7 +196,7 @@ HITL subscription pattern.
   "risk_score": "int",
   "risk_band": "string",
   "request_id": "string (ulid)",
-  "expires_at": "string (ISO-8601)"
+  "expires_at": "string (ISO-8601)"  // configurable via `approvals set-timeout`; default 24h, range 1h–8760h
 }
 ```
 
