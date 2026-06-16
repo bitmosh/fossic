@@ -118,11 +118,16 @@ impl SubscriptionRegistry {
     }
 
     /// Register a new subscription. Returns `(id, degraded_flag)`.
+    ///
+    /// For glob subscriptions, `initial_stream_cursors` pre-seeds the per-stream
+    /// cursor map so that already-committed events are not replayed. Pass an empty
+    /// map for exact-stream subscriptions (which use `initial_cursor` instead).
     pub fn subscribe(
         self: &Arc<Self>,
         q: SubscribeQuery,
         mode: SubscriptionMode,
         initial_cursor: i64,
+        initial_stream_cursors: HashMap<(String, String), i64>,
         handler: Arc<dyn SubscriptionHandler>,
     ) -> (u64, Arc<AtomicBool>) {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
@@ -141,7 +146,7 @@ impl SubscriptionRegistry {
                 SubscriberKind::PostCommit {
                     tx,
                     wal_cursor: initial_cursor,
-                    stream_cursors: HashMap::new(),
+                    stream_cursors: initial_stream_cursors,
                 }
             }
         };

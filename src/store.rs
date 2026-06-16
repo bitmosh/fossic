@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, RwLock},
 };
@@ -265,27 +265,46 @@ impl Store {
         mode: SubscriptionMode,
         handler: H,
     ) -> Result<SubscriptionHandle, Error> {
-        // Capture the current max version as the WAL-watcher cursor so that
-        // cross-process subscriptions only receive *new* events, not historical ones.
-        // Glob subscriptions use -1 (scan from start); per-stream cursor tracking
-        // for globs is a v2 extension.
-        let initial_cursor: i64 = if q.stream_pattern.contains('*') {
-            -1
+        // Seed the subscription cursor(s) from the current state so that
+        // already-committed events are not replayed. For exact-stream subscriptions
+        // this is a single MAX(version) query. For glob subscriptions we snapshot
+        // MAX(version) per matching stream into stream_cursors; streams created after
+        // subscription receive their first event correctly because dispatch uses
+        // unwrap_or(&-1) for unknown streams.
+        let is_glob = q.stream_pattern.contains('*');
+        let (initial_cursor, initial_stream_cursors) = if is_glob {
+            let conn = self.lock()?;
+            let mut stmt = conn.prepare(
+                "SELECT stream_id, COALESCE(MAX(version), -1) \
+                 FROM events WHERE branch = ?1 GROUP BY stream_id",
+            )?;
+            let rows = stmt.query_map(rusqlite::params![q.branch], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            })?;
+            let mut seed: HashMap<(String, String), i64> = HashMap::new();
+            for row in rows {
+                let (stream_id, max_version) = row?;
+                if crate::glob::matches(&q.stream_pattern, &stream_id) {
+                    seed.insert((stream_id, q.branch.clone()), max_version);
+                }
+            }
+            (-1i64, seed)
         } else {
             let conn = self.lock()?;
-            conn.query_row(
+            let cursor = conn.query_row(
                 "SELECT COALESCE(MAX(version), -1) \
                  FROM events WHERE stream_id = ?1 AND branch = ?2",
                 rusqlite::params![q.stream_pattern, q.branch],
                 |r| r.get(0),
-            )?
+            )?;
+            (cursor, HashMap::new())
         };
 
         let handler_arc: Arc<dyn SubscriptionHandler> = Arc::new(handler);
         let (id, degraded) =
             self.inner
                 .sub_registry
-                .subscribe(q, mode, initial_cursor, handler_arc);
+                .subscribe(q, mode, initial_cursor, initial_stream_cursors, handler_arc);
 
         Ok(SubscriptionHandle {
             id,

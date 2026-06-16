@@ -711,3 +711,99 @@ fn include_system_false_blocks_system_stream_on_glob() {
         "include_system: false must suppress _fossic/system even when ** pattern is used"
     );
 }
+
+#[test]
+fn glob_sub_does_not_replay_historical_events() {
+    // Events appended BEFORE the glob subscription is created must NOT be delivered.
+    // Events appended AFTER must be delivered.
+    let (store, _dir) = open_tmp();
+    decl(&store, "hist/a");
+    decl(&store, "hist/b");
+
+    // Pre-existing history (before subscription).
+    store.append(unique_ev("hist/a")).unwrap();
+    store.append(unique_ev("hist/a")).unwrap();
+    store.append(unique_ev("hist/b")).unwrap();
+
+    let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let received2 = Arc::clone(&received);
+
+    let _handle = store
+        .subscribe(
+            SubscribeQuery {
+                stream_pattern: "hist/*".to_string(),
+                branch: "main".to_string(),
+                include_system: false,
+            },
+            SubscriptionMode::PostCommit { queue_size: 16 },
+            FnHandler(move |e| {
+                received2.lock().unwrap().push(e.stream_id.clone());
+            }),
+        )
+        .unwrap();
+
+    // Brief pause — no replayed events should arrive.
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert_eq!(
+        received.lock().unwrap().len(),
+        0,
+        "glob sub must not replay events committed before subscription"
+    );
+
+    // New events after subscription must arrive.
+    store.append(unique_ev("hist/a")).unwrap();
+    store.append(unique_ev("hist/b")).unwrap();
+
+    assert!(
+        wait_for(|| received.lock().unwrap().len() >= 2, 2000),
+        "glob sub must receive events appended after subscription"
+    );
+    assert_eq!(
+        received.lock().unwrap().len(),
+        2,
+        "glob sub must receive exactly the 2 new events"
+    );
+}
+
+#[test]
+fn glob_sub_receives_events_on_new_stream_created_after_subscription() {
+    // A stream that didn't exist at subscription time must be delivered when
+    // its first event arrives (stream_cursors defaults to -1 for unknown streams).
+    let (store, _dir) = open_tmp();
+    decl(&store, "ns/existing");
+
+    // Pre-existing event on known stream.
+    store.append(unique_ev("ns/existing")).unwrap();
+
+    let count = Arc::new(AtomicU64::new(0));
+    let count2 = Arc::clone(&count);
+
+    let _handle = store
+        .subscribe(
+            SubscribeQuery {
+                stream_pattern: "ns/**".to_string(),
+                branch: "main".to_string(),
+                include_system: false,
+            },
+            SubscriptionMode::PostCommit { queue_size: 16 },
+            FnHandler(move |_| { count2.fetch_add(1, Ordering::Relaxed); }),
+        )
+        .unwrap();
+
+    // Pause — the pre-existing event must NOT be replayed.
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert_eq!(
+        count.load(Ordering::Relaxed),
+        0,
+        "pre-existing event must not replay after glob sub creation"
+    );
+
+    // Create a brand-new stream and append to it.
+    decl(&store, "ns/new");
+    store.append(unique_ev("ns/new")).unwrap();
+
+    assert!(
+        wait_for(|| count.load(Ordering::Relaxed) >= 1, 2000),
+        "glob sub must receive first event on stream created after subscription"
+    );
+}
