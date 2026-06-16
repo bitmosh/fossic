@@ -63,13 +63,15 @@ Setting to 1 effectively restores single-connection read behaviour.
 
 ## Tech debt / polish debt
 
-### TD-001 — `take_snapshot` dual-acquisition TOCTOU
+> **Note:** These items were filed with local labels (TD-001, TD-002, PD-001) during this pass before canonical IDs were assigned. Canonical IDs are TD-007, TD-008, PD-009 — see `TECH_DEBT.md` and `POLISH_DEBT.md`.
+
+### TD-007 — `take_snapshot` dual-acquisition TOCTOU
 `take_snapshot` acquires a read connection (events + snapshot read), releases it, computes state, then acquires the write connection to persist. A concurrent append between the two acquisitions could add events that are not included in the snapshot. This was already true with two `self.lock()` calls; Phase 6b doesn't make it worse, but the window is now wider (read conn ≠ write conn, so they don't serialise). Fix: restructure `take_snapshot` to acquire write lock for the full read+compute+write cycle, or use SQLite `BEGIN IMMEDIATE` for the read phase. Deferred — snapshots are idempotent; a slightly stale snapshot is not data loss.
 
-### TD-002 — `subscribe` seed query on write conn
+### TD-008 — `subscribe` seed query on write conn
 The seed query that determines starting cursors for glob subscriptions runs on the write connection (`self.lock()`). It's a pure read and could use `read_conn()`. Not a correctness issue — it's infrequent. Deferred.
 
-### PD-001 — `PoolExhausted` not covered by integration tests
+### PD-009 — `PoolExhausted` not covered by integration tests
 Testing exhaustion requires either a very short configurable timeout (not yet in OpenOptions) or a 30-second wait. Deferred. If `PoolExhausted` needs to be testable, add `OpenOptions::read_pool_timeout_ms` in a future polish pass.
 
 ---
@@ -90,4 +92,4 @@ Testing exhaustion requires either a very short configurable timeout (not yet in
 
 ## Living report updates
 
-None.
+Reconciled in v1.0.0x registry pass: TD-007 and TD-008 added to `TECH_DEBT.md`; PD-005 marked resolved; PD-009 added to `POLISH_DEBT.md`. Both registries updated to `last_reviewed: v1.0.0w`.

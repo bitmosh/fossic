@@ -1,6 +1,6 @@
 ---
 title: Polish Debt — Living Report
-last_reviewed: v0.10.0q
+last_reviewed: v1.0.0w
 ---
 
 # Polish Debt — Living Report
@@ -150,18 +150,26 @@ highest registered `to_version`; a gap in the chain (1→2, 3→4 but no 2→3) 
 ---
 id: PD-005
 type: polish_debt
-status: open
+status: resolved
 pass_opened: v0.10.0t
+pass_resolved: v1.0.0t
 severity: LOW
 ---
 
-### PD-005 — Extension event type naming convention inconsistency (snake_case vs PascalCase)
+### ~~PD-005 — Extension event type naming convention inconsistency (snake_case vs PascalCase)~~
+
+> **Resolved in v1.0.0t** — Added one sentence to `AGENT_TRACE_VOCABULARY.md` §9: "Choose the casing that matches the consumer codebase's idiom — `snake_case` for Rust consumers (rhyzome, bons.ai), PascalCase for Python consumers (Cerebra)." No code changes. See blast-radius/pass-1.0.0t.md.
+
+<details>
+<summary>Original entry</summary>
 
 **What it is:** Rhyzome and bons.ai extension event types use `snake_case` naming (e.g., `strategy_selected`, `bandit_arm_selected`). Cerebra extension event types use `PascalCase` (e.g., `SessionOpened`, `ClutchDecisionMade`). Both conventions work — fossic core is agnostic to event type name casing — but the inconsistency is visible to readers of AGENT_TRACE_VOCABULARY.md and creates a question about which convention new consumers should follow.
 
 **Where:** `docs/implement/AGENT_TRACE_VOCABULARY.md` §9 ("Adding new event types") acknowledges both conventions exist but doesn't make a recommendation.
 
 **Fix:** Add one sentence to §9 recommending a convention for new consumers: either standardize on `snake_case` (matching fossic core's convention for the standard five types) or accept `PascalCase` (Cerebra's convention, common in event sourcing). If consensus is `snake_case`, note that Cerebra's PascalCase names are grandfathered. No code changes — docs-only.
+
+</details>
 
 
 ---
@@ -219,3 +227,20 @@ and a no-just fallback block for contributors without `just` installed.
 
 </details>
 
+---
+id: PD-009
+type: polish_debt
+status: open
+pass_opened: v1.0.0w
+severity: LOW
+---
+
+### PD-009 — `PoolExhausted` not covered by integration tests
+
+**What it is:** `Error::PoolExhausted` (returned after 30s `recv_timeout` when all pool connections are busy) has no integration test. Triggering it requires either holding all pool connections for 30 seconds or a configurable shorter timeout — neither is currently in `OpenOptions`.
+
+**Where:** `src/error.rs` — `Error::PoolExhausted` variant. `src/store.rs` — `Store::read_conn()` hardcodes `Duration::from_millis(30_000)`.
+
+**Fix:** Add `OpenOptions::read_pool_timeout_ms: u64` (default 30_000). In `tests/read_pool.rs`, add a test that opens a `pool_size: 1, read_pool_timeout_ms: 50` store, holds the one connection in a thread, and asserts `read_range` returns `Err(Error::PoolExhausted { .. })`.
+
+**Trigger:** v1.0.0 polish pass, or when a consumer needs to validate `PoolExhausted` handling in their own test suite.

@@ -57,9 +57,9 @@ Drift: `fossic-py/src/types.rs` had a struct literal missing `read_pool_size`. F
 
 | ID | Description | Severity |
 |---|---|---|
-| TD-001 | `take_snapshot` dual-acquisition TOCTOU | Low (snapshots are idempotent) |
-| TD-002 | `subscribe` seed query uses write conn | Cosmetic |
-| PD-001 | `PoolExhausted` not covered by integration tests | Low |
+| TD-007 | `take_snapshot` dual-acquisition TOCTOU | Low (snapshots are idempotent) |
+| TD-008 | `subscribe` seed query uses write conn | Cosmetic |
+| PD-009 | `PoolExhausted` not covered by integration tests | Low |
 
 ---
 
@@ -87,7 +87,7 @@ Highlights:
 · OpenOptions::read_pool_size (default 4); Error::PoolExhausted added
 · Drift fixed: fossic-py OpenOptions struct literal missing read_pool_size
 
-Tech debt registered: TD-001 (take_snapshot dual-acquisition), TD-002 (subscribe seed query on write conn), PD-001 (PoolExhausted not integration-tested)
+Tech debt registered: TD-007 (take_snapshot dual-acquisition), TD-008 (subscribe seed query on write conn), PD-009 (PoolExhausted not integration-tested)
 
 Tests: 178 passed, 0 failed (4 new in tests/read_pool.rs)
 Branch: clean

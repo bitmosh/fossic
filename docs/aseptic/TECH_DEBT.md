@@ -1,6 +1,6 @@
 ---
 title: Tech Debt — Living Report
-last_reviewed: v0.10.0q
+last_reviewed: v1.0.0w
 ---
 
 # Tech Debt — Living Report
@@ -232,3 +232,45 @@ tests required manual environment discovery. No aggregate pass count was visible
 **Trigger:** Before v1.0-rc.1 tag — developer experience requirement.
 
 </details>
+
+---
+id: TD-007
+type: tech_debt
+status: open
+pass_opened: v1.0.0w
+severity: LOW
+---
+
+### TD-007 — `take_snapshot` dual-acquisition TOCTOU
+
+**What it is:** `take_snapshot` acquires a read connection (events + snapshot read), releases it, computes state, then acquires the write connection to persist the snapshot row. A concurrent append between the two acquisitions could add events not included in the snapshot. This window pre-existed with two `self.lock()` calls; Phase 6b widens it because read conn and write conn no longer serialise against each other.
+
+**Why it was necessary:** Phase 6b correctly switched `take_snapshot`'s first lock to `read_conn()` (it reads events and snapshot state). Restructuring to hold the write mutex for the full read+compute+write cycle was deferred — it's a more invasive change and correctness is not at risk.
+
+**Known cost:** A slightly stale snapshot (missing events appended between the two acquisitions) is possible under concurrent write load. Snapshots are idempotent: a stale snapshot does not lose data; the next `read_state` call replays any missed events.
+
+**Trigger:** When snapshot staleness becomes observable under high-throughput concurrent write load. Fix: hold the write mutex for the entire `take_snapshot` read+compute+write cycle, or issue `BEGIN IMMEDIATE` on the read connection to serialise against concurrent appends.
+
+**Evidence:** `src/store.rs` — `take_snapshot` acquires `read_conn()` then drops it before acquiring `self.lock()`. See `docs/aseptic/blast-radius/pass-1.0.0w.md`.
+
+---
+
+---
+id: TD-008
+type: tech_debt
+status: open
+pass_opened: v1.0.0w
+severity: LOW
+---
+
+### TD-008 — `subscribe` glob seed query runs on write connection
+
+**What it is:** When a glob subscription is created, `Store::subscribe` queries `MAX(version)` per matching stream to seed per-stream cursors. This query runs on the write connection (`self.lock()`) rather than a pool connection, briefly contending with concurrent appends.
+
+**Why it was necessary:** The seed query was written in the same pass as glob cursor seeding (v1.0.0u), before the read pool existed (v1.0.0w). Switching it to `read_conn()` was noted as a deferred cosmetic cleanup.
+
+**Known cost:** Subscription setup is infrequent. A brief write-conn contention on glob subscribe creation is not a latency problem in practice. Correctness is unaffected.
+
+**Trigger:** Cosmetic cleanup pass, or if subscription setup latency becomes measurable. Fix: move the seed query block in `Store::subscribe` to `self.read_conn()`.
+
+**Evidence:** `src/store.rs` — `Store::subscribe` calls `self.lock()` for the seed query in the glob branch. See `docs/aseptic/blast-radius/pass-1.0.0w.md`.
