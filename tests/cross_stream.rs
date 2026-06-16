@@ -331,6 +331,227 @@ fn aggregate_event_type_filter() {
     assert_eq!(counts["y"], 1);
 }
 
+// ── indexed_tags_filter: SQL-level filtering ──────────────────────────────────
+
+#[test]
+fn aggregate_indexed_tags_string_filter() {
+    let (store, _dir) = open_tmp();
+    store.declare_stream("bonsai/ideas", "test", None).unwrap();
+
+    for (group, n) in &[("arm_A", 3u64), ("arm_B", 2u64)] {
+        for i in 0..*n {
+            store
+                .append(Append {
+                    stream_id: "bonsai/ideas".to_string(),
+                    event_type: "IdeaScored".to_string(),
+                    type_version: 1,
+                    payload: serde_json::json!({ "i": i }),
+                    indexed_tags: Some(serde_json::json!({ "group": group })),
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+    }
+
+    let results = store
+        .aggregate(
+            AggregateQuery {
+                stream_pattern: "bonsai/ideas".to_string(),
+                indexed_tags_filter: Some(serde_json::json!({ "group": "arm_A" })),
+                ..Default::default()
+            },
+            CountByGroup(HashMap::new()),
+        )
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results["arm_A"], 3);
+}
+
+#[test]
+fn aggregate_indexed_tags_boolean_filter() {
+    let (store, _dir) = open_tmp();
+    store.declare_stream("bonsai/ideas", "test", None).unwrap();
+
+    struct CountEvents(u64);
+    impl Aggregate for CountEvents {
+        type Output = u64;
+        fn fold(&mut self, _: &StoredEvent) { self.0 += 1; }
+        fn finalize(self) -> u64 { self.0 }
+    }
+
+    // Use a global seq in payload to prevent CCE dedup across the two groups.
+    // indexed_tags is NOT part of the CCE hash, so same payload + different tags
+    // produces the same event ID and the second append is a no-op.
+    let mut seq = 0u64;
+    for (violated, n) in &[(true, 2u64), (false, 3u64)] {
+        for _ in 0..*n {
+            seq += 1;
+            store
+                .append(Append {
+                    stream_id: "bonsai/ideas".to_string(),
+                    event_type: "IdeaScored".to_string(),
+                    type_version: 1,
+                    payload: serde_json::json!({ "seq": seq }),
+                    indexed_tags: Some(serde_json::json!({ "composite_floor_violated": *violated })),
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+    }
+
+    let count_true = store
+        .aggregate(
+            AggregateQuery {
+                stream_pattern: "bonsai/ideas".to_string(),
+                indexed_tags_filter: Some(serde_json::json!({ "composite_floor_violated": true })),
+                ..Default::default()
+            },
+            CountEvents(0),
+        )
+        .unwrap();
+    assert_eq!(count_true, 2);
+
+    let count_false = store
+        .aggregate(
+            AggregateQuery {
+                stream_pattern: "bonsai/ideas".to_string(),
+                indexed_tags_filter: Some(serde_json::json!({ "composite_floor_violated": false })),
+                ..Default::default()
+            },
+            CountEvents(0),
+        )
+        .unwrap();
+    assert_eq!(count_false, 3);
+}
+
+#[test]
+fn aggregate_indexed_tags_multi_key_and() {
+    let (store, _dir) = open_tmp();
+    store.declare_stream("bonsai/ideas", "test", None).unwrap();
+
+    // Three events: only the one with BOTH session_id=s1 AND arm_id=a1 should match.
+    for (session, arm, i) in [("s1", "a1", 0), ("s1", "a2", 1), ("s2", "a1", 2)] {
+        store
+            .append(Append {
+                stream_id: "bonsai/ideas".to_string(),
+                event_type: "Ev".to_string(),
+                type_version: 1,
+                payload: serde_json::json!({ "i": i }),
+                indexed_tags: Some(serde_json::json!({ "session_id": session, "arm_id": arm })),
+                ..Default::default()
+            })
+            .unwrap();
+    }
+
+    struct CountEvents(u64);
+    impl Aggregate for CountEvents {
+        type Output = u64;
+        fn fold(&mut self, _: &StoredEvent) { self.0 += 1; }
+        fn finalize(self) -> u64 { self.0 }
+    }
+
+    let count = store
+        .aggregate(
+            AggregateQuery {
+                stream_pattern: "bonsai/ideas".to_string(),
+                indexed_tags_filter: Some(
+                    serde_json::json!({ "session_id": "s1", "arm_id": "a1" }),
+                ),
+                ..Default::default()
+            },
+            CountEvents(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[test]
+fn aggregate_indexed_tags_filter_no_match_returns_empty() {
+    let (store, _dir) = open_tmp();
+    store.declare_stream("bonsai/ideas", "test", None).unwrap();
+
+    store
+        .append(Append {
+            stream_id: "bonsai/ideas".to_string(),
+            event_type: "Ev".to_string(),
+            type_version: 1,
+            payload: serde_json::json!({ "i": 1 }),
+            indexed_tags: Some(serde_json::json!({ "group": "arm_A" })),
+            ..Default::default()
+        })
+        .unwrap();
+
+    let counts = store
+        .aggregate(
+            AggregateQuery {
+                stream_pattern: "bonsai/ideas".to_string(),
+                indexed_tags_filter: Some(serde_json::json!({ "group": "nonexistent" })),
+                ..Default::default()
+            },
+            CountByGroup(HashMap::new()),
+        )
+        .unwrap();
+    assert!(counts.is_empty());
+}
+
+// ── Glob semantics fix: * must not cross segment boundaries ──────────────────
+
+#[test]
+fn aggregate_single_star_does_not_cross_segments() {
+    let (store, _dir) = open_tmp();
+    store.declare_stream("bonsai/ideas", "test", None).unwrap();
+    store.declare_stream("bonsai/ideas/nested", "test", None).unwrap();
+
+    store
+        .append(Append {
+            stream_id: "bonsai/ideas".to_string(),
+            event_type: "Ev".to_string(),
+            payload: serde_json::json!({ "depth": 1 }),
+            ..Default::default()
+        })
+        .unwrap();
+    store
+        .append(Append {
+            stream_id: "bonsai/ideas/nested".to_string(),
+            event_type: "Ev".to_string(),
+            payload: serde_json::json!({ "depth": 2 }),
+            ..Default::default()
+        })
+        .unwrap();
+
+    struct CountEvents(u64);
+    impl Aggregate for CountEvents {
+        type Output = u64;
+        fn fold(&mut self, _: &StoredEvent) { self.0 += 1; }
+        fn finalize(self) -> u64 { self.0 }
+    }
+
+    // "bonsai/*" should match "bonsai/ideas" but NOT "bonsai/ideas/nested"
+    let count = store
+        .aggregate(
+            AggregateQuery {
+                stream_pattern: "bonsai/*".to_string(),
+                ..Default::default()
+            },
+            CountEvents(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1, "bonsai/* must not match bonsai/ideas/nested");
+
+    // "bonsai/**" should match both
+    let count_deep = store
+        .aggregate(
+            AggregateQuery {
+                stream_pattern: "bonsai/**".to_string(),
+                ..Default::default()
+            },
+            CountEvents(0),
+        )
+        .unwrap();
+    assert_eq!(count_deep, 2, "bonsai/** must match both streams");
+}
+
 // ── D2/D3 regression: usize::MAX must not corrupt depth bound ─────────────────
 
 #[test]

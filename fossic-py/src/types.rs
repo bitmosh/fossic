@@ -575,6 +575,9 @@ pub struct PyAggregateQuery {
     pub event_type_filter: Option<String>,
     pub from_timestamp_us: Option<i64>,
     pub to_timestamp_us: Option<i64>,
+    /// Flat AND exact-match filter on indexed_tags. Must be a dict of
+    /// JSON-primitive values (str, bool, int, float, None).
+    pub indexed_tags_filter: Option<Py<PyAny>>,
 }
 
 #[pymethods]
@@ -586,6 +589,7 @@ impl PyAggregateQuery {
         event_type_filter = None,
         from_timestamp_us = None,
         to_timestamp_us = None,
+        indexed_tags_filter = None,
     ))]
     fn new(
         stream_pattern: String,
@@ -593,6 +597,7 @@ impl PyAggregateQuery {
         event_type_filter: Option<String>,
         from_timestamp_us: Option<i64>,
         to_timestamp_us: Option<i64>,
+        indexed_tags_filter: Option<Py<PyAny>>,
     ) -> Self {
         PyAggregateQuery {
             stream_pattern,
@@ -600,6 +605,7 @@ impl PyAggregateQuery {
             event_type_filter,
             from_timestamp_us,
             to_timestamp_us,
+            indexed_tags_filter,
         }
     }
 }

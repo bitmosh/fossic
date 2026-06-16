@@ -343,13 +343,18 @@ impl PyStore {
     /// Run an aggregate query and return all matching events.
     ///
     /// The Python caller folds the events into the desired summary value.
-    fn aggregate(&self, query: PyRef<PyAggregateQuery>) -> PyResult<Vec<PyStoredEvent>> {
+    fn aggregate(&self, py: Python<'_>, query: PyRef<PyAggregateQuery>) -> PyResult<Vec<PyStoredEvent>> {
+        let indexed_tags_filter = match &query.indexed_tags_filter {
+            None => None,
+            Some(obj) => Some(py_to_json(py, obj.bind(py))?),
+        };
         let aq = AggregateQuery {
             stream_pattern: query.stream_pattern.clone(),
             branch: query.branch.clone(),
             event_type_filter: query.event_type_filter.clone(),
             from_timestamp_us: query.from_timestamp_us,
             to_timestamp_us: query.to_timestamp_us,
+            indexed_tags_filter,
         };
         self.inner
             .aggregate(aq, CollectAll(Vec::new()))

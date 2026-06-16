@@ -33,15 +33,25 @@ pub trait Aggregate: Send + Sync + 'static {
 
 /// Query parameters for `Store::aggregate`.
 ///
-/// `stream_pattern` uses SQLite's `GLOB` operator: `*` matches any sequence of
-/// characters (including `/`). `indexed_tags` filtering is left to the `Aggregate`
-/// implementation — fossic does not synthesize tags from payloads.
+/// **Stream glob:** `stream_pattern` follows the same rules as subscriptions —
+/// `*` matches one path segment, `**` matches zero or more segments.
+/// SQL pre-filtering uses SQLite `GLOB` (an over-approximation); a Rust
+/// post-filter enforces exact glob semantics so callers get the stream set
+/// they expect.
+///
+/// **`indexed_tags_filter`:** optional flat-AND exact-match filter pushed down
+/// to SQL. Each key-value pair in the object must match the stored tag exactly.
+/// Supported value types: string, bool, integer, float, null. All pairs are
+/// combined with AND; OR and range predicates belong in `Aggregate::fold`.
+/// Keys must be alphanumeric + underscore (no dots, slashes, or quotes).
 pub struct AggregateQuery {
     pub stream_pattern: String,
     pub branch: String,
     pub event_type_filter: Option<String>,
     pub from_timestamp_us: Option<i64>,
     pub to_timestamp_us: Option<i64>,
+    /// Flat AND exact-match filter on `indexed_tags`. See type-level docs.
+    pub indexed_tags_filter: Option<serde_json::Value>,
 }
 
 impl Default for AggregateQuery {
@@ -52,6 +62,7 @@ impl Default for AggregateQuery {
             event_type_filter: None,
             from_timestamp_us: None,
             to_timestamp_us: None,
+            indexed_tags_filter: None,
         }
     }
 }
@@ -184,37 +195,104 @@ fn walk_backward(
 
 // ── aggregate ─────────────────────────────────────────────────────────────────
 
+/// Returns `true` if `key` is safe to interpolate into a JSON path string.
+/// Rejects anything that could escape `'$.{key}'` in the SQL literal.
+fn is_safe_tag_key(key: &str) -> bool {
+    !key.is_empty() && key.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
 pub(crate) fn aggregate_impl<A: Aggregate>(
     conn: &Connection,
     query: AggregateQuery,
     mut agg: A,
     upcasters: &UpcasterRegistry,
 ) -> Result<A::Output, Error> {
-    // Use NULL-guard pattern so all 5 params are always bound.
-    // (?3 IS NULL OR event_type = ?3) short-circuits when filter is absent.
+    // Build WHERE clauses and bound params dynamically so we can attach
+    // arbitrary indexed_tags conditions without the ?N reuse limitation.
+    let mut clauses: Vec<String> = vec![
+        "stream_id GLOB ?".to_string(),
+        "branch = ?".to_string(),
+    ];
+    // Using Box<dyn ToSql> so we can push heterogeneous param types.
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
+        Box::new(query.stream_pattern.clone()),
+        Box::new(query.branch.clone()),
+    ];
+
+    if let Some(ref et) = query.event_type_filter {
+        clauses.push("event_type = ?".to_string());
+        params.push(Box::new(et.clone()));
+    }
+    if let Some(from_ts) = query.from_timestamp_us {
+        clauses.push("timestamp_us >= ?".to_string());
+        params.push(Box::new(from_ts));
+    }
+    if let Some(to_ts) = query.to_timestamp_us {
+        clauses.push("timestamp_us <= ?".to_string());
+        params.push(Box::new(to_ts));
+    }
+
+    // indexed_tags_filter: flat AND, exact-match on JSON primitives.
+    // Booleans are compared as integers (json_extract returns 1/0 for true/false).
+    // Keys are validated to prevent SQL injection via the JSON path literal.
+    if let Some(ref filter) = query.indexed_tags_filter {
+        if let serde_json::Value::Object(map) = filter {
+            for (key, value) in map {
+                if !is_safe_tag_key(key) {
+                    return Err(Error::Internal(format!(
+                        "indexed_tags_filter key {key:?} must contain only letters, digits, and underscores"
+                    )));
+                }
+                let path = format!("$.{key}");
+                match value {
+                    serde_json::Value::Null => {
+                        clauses.push(format!("json_extract(indexed_tags, '{path}') IS NULL"));
+                    }
+                    serde_json::Value::Bool(b) => {
+                        clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
+                        params.push(Box::new(if *b { 1i64 } else { 0i64 }));
+                    }
+                    serde_json::Value::Number(n) => {
+                        if let Some(i) = n.as_i64() {
+                            clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
+                            params.push(Box::new(i));
+                        } else if let Some(f) = n.as_f64() {
+                            clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
+                            params.push(Box::new(f));
+                        }
+                    }
+                    serde_json::Value::String(s) => {
+                        clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
+                        params.push(Box::new(s.clone()));
+                    }
+                    _ => {
+                        return Err(Error::Internal(format!(
+                            "indexed_tags_filter value for key {key:?} must be a JSON primitive (string, bool, number, or null)"
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
     let sql = format!(
-        "SELECT {SELECT_COLS} FROM events \
-         WHERE stream_id GLOB ?1 \
-         AND branch = ?2 \
-         AND (?3 IS NULL OR event_type = ?3) \
-         AND (?4 IS NULL OR timestamp_us >= ?4) \
-         AND (?5 IS NULL OR timestamp_us <= ?5) \
-         ORDER BY timestamp_us ASC"
+        "SELECT {SELECT_COLS} FROM events WHERE {} ORDER BY timestamp_us ASC",
+        clauses.join(" AND ")
     );
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map(
-        rusqlite::params![
-            query.stream_pattern,
-            query.branch,
-            query.event_type_filter,
-            query.from_timestamp_us,
-            query.to_timestamp_us,
-        ],
+        rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())),
         row_to_event,
     )?;
+
+    // Rust post-filter: SQLite GLOB treats `*` as any chars (including `/`),
+    // but fossic glob treats `*` as one segment only. Apply our glob here so
+    // callers get the stream set they expect regardless of SQLite's semantics.
     for row in rows {
         let event = apply_upcaster(upcasters, row?)?;
-        agg.fold(&event);
+        if crate::glob::matches(&query.stream_pattern, &event.stream_id) {
+            agg.fold(&event);
+        }
     }
     Ok(agg.finalize())
 }
