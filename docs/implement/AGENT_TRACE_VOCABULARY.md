@@ -1,6 +1,6 @@
 # Agent Trace Vocabulary
 
-**Status:** v1 specification · v1.0.0o · 2026-06-14
+**Status:** v1 specification · v1.0.0n · 2026-06-15
 **Scope:** Standard event types fossic ships for agent trace recording, the per-tool determinism registry, the rhyzome, bons.ai, and Cerebra extensions, and the OpenTelemetry GenAI span mapping.
 
 ---
@@ -20,7 +20,7 @@ A discoverability registry for all projects emitting events to fossic agent-trac
 | Consumer | Stream prefix | Vocabulary location | Overlap flags |
 |---|---|---|---|
 | fossic (standard) | `*/agent-trace/*` | This doc §3 | — |
-| Cerebra | `cerebra/agent-trace/*`, `cerebra/lattice/*` | This doc §7 + `cerebra_phase6_event_vocabulary.md` | `ContextPacketBuilt`: also emitted in pre-Phase-6 retrieval flow without `cycle_id`; see §7.3.2 note |
+| Cerebra | `cerebra/agent-trace/*`, `cerebra/lattice/*`, `cerebra/control` | This doc §7 + `cerebra_phase6_event_vocabulary.md` | `ContextPacketBuilt`: also emitted in pre-Phase-6 retrieval flow without `cycle_id`; see §7.3.2 note |
 | rhyzome | `rhyzome/repair/*` | This doc §5 | — |
 | bons.ai | `bonsai/idea/*` | This doc §6 | — |
 
@@ -346,16 +346,25 @@ Confirms a fire-and-forget vector store write is auditable.
 
 These types are defined in Cerebra's codebase, not in fossic core. They are documented here for cross-project visibility. For the full required-vs-optional field rationale and `indexed_tags` recommendations, see `cerebra_phase6_event_vocabulary.md` in the Cerebra project.
 
-All 22 types are `type_version=1`. PascalCase names, past-tense verbs (event reports something that happened). All write to streams matching `cerebra/agent-trace/<session_id>` per the stream pattern lock in §7.1.
+All 24 types are `type_version=1`. PascalCase names, past-tense verbs (event reports something that happened). Agent-trace types write to streams matching `cerebra/agent-trace/<session_id>`; two daemon-control types (`PostureChanged`, `CheckpointSaved`) use distinct stream patterns — see §7.1 for the full stream lock.
 
 ### 7.1 Stream pattern lock
 
-Cerebra emits all agent-trace events to streams matching `cerebra/agent-trace/<session_id>`.
+Cerebra emits agent-trace events to streams matching `cerebra/agent-trace/<session_id>` and daemon-control events to the global stream `cerebra/control`.
+
+**Per-session streams — `cerebra/agent-trace/<session_id>`:**
 
 - The `<session_id>` segment is a single-segment UUID — no embedded slashes, under 256 characters. A session spans multiple cycles (including re-injection children); all cycle events for a session share the same stream.
 - Subscribers to `*/agent-trace/*` receive Cerebra events alongside events from other consumers using the same `agent-trace` stream tier.
 - Forward-compat reservation: `cerebra/agent-trace/<session_id>/<sub_id>` is reserved for future sub-session event structure. Consumers should not treat the absence of sub-session streams as a guarantee.
-- Cerebra also emits to `cerebra/lattice/<lineage_id>` streams with separate vocabulary. That vocabulary is documented in a forthcoming addendum covering Phase 8 lattice aggregate events; it is NOT part of this document.
+
+**Global daemon stream — `cerebra/control`:**
+
+- Emitted by the `cerebra serve` daemon. No session suffix — one stream per daemon instance.
+- Carries platform-level state changes (posture, daemon lifecycle, future global signals).
+- Not covered by the `*/agent-trace/*` glob — consumers subscribing to daemon state must use `cerebra/control` explicitly.
+
+Cerebra also emits to `cerebra/lattice/<lineage_id>` streams with separate vocabulary. That vocabulary is documented in a forthcoming addendum covering Phase 8 lattice aggregate events; it is NOT part of this document.
 
 ### 7.2 Session and cycle lifecycle
 
@@ -831,6 +840,62 @@ Consolidation produced a summary record.
 ```
 
 **Determinism:** `true` — graph state at export time is deterministic given a fixed event log. **Causation:** external (CLI invocation).
+
+### 7.11 Daemon controls (cerebra serve)
+
+Events introduced by the `cerebra serve` daemon. Unlike §7.2–§7.10 events, which all write to `cerebra/agent-trace/<session_id>`, daemon-control events use distinct stream patterns — see §7.1 for the full lock.
+
+#### 7.11.1 `PostureChanged`
+
+**Stream:** `cerebra/control` (global — no session suffix)
+
+Emitted by `POST /posture` when the developer or a Lattica tile changes the daemon posture. Records the new posture value after the change.
+
+```json
+{
+  "posture": "auto",
+  "changed_at": 1718450000000
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `posture` | `"auto"` \| `"hold"` | New posture value after the change |
+| `changed_at` | int (ms epoch) | Timestamp of the change |
+
+No `indexed_tags` — posture is global, not session-scoped.
+
+**Determinism:** `false` — developer action. **Causation:** external (`POST /posture`).
+
+#### 7.11.2 `CheckpointSaved`
+
+**Stream:** `cerebra/agent-trace/<session_id>`
+
+Emitted by `POST /checkpoint` when the developer or a Lattica tile requests a session state snapshot. Carries working-memory and TruthTower counts at checkpoint time.
+
+```json
+{
+  "session_id": "sess_8f88ab...",
+  "bundle_id": "bundle_abc123...",
+  "wm_item_count": 12,
+  "t1_count": 3,
+  "t2_count": 1,
+  "checkpointed_at": 1718450000000
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `session_id` | string | The session being checkpointed |
+| `bundle_id` | string | ID of the persisted `ContinuationBundle` in SQLite |
+| `wm_item_count` | int | Working memory item count at checkpoint time |
+| `t1_count` | int | TruthTower T1 item count |
+| `t2_count` | int | TruthTower T2 item count |
+| `checkpointed_at` | int (ms epoch) | Timestamp |
+
+`indexed_tags={"session_id": session_id}` — consistent with existing Cerebra agent-trace events.
+
+**Determinism:** `false` — on-demand developer action. **Causation:** external (`POST /checkpoint`).
 
 ---
 
