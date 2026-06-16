@@ -175,12 +175,18 @@ severity: LOW
 ---
 id: PD-007
 type: polish_debt
-status: open
+status: resolved
 pass_opened: v0.10.0s
+pass_resolved: d6d4a06
 severity: LOW
 ---
 
-### PD-007 — blake3 Python availability gap in CCE conformance harness
+### ~~PD-007 — blake3 Python availability gap in CCE conformance harness~~
+
+> **Resolved in commit d6d4a06** (pre-v1.0.0s, undocumented pass) — `compute_event_id(event_type, payload, type_version, causation_id)` exposed via PyO3 in `fossic-py/src/cce.rs`; Python wrapper and `__all__` export added to `fossic-py/python/fossic/__init__.py`. 8 tests in `fossic-py/tests/test_event_id.py` verify round-trip byte identity between `compute_event_id()` and the ID assigned by `Store.append()`, covering simple payloads, causation chains, type versions, and sensitivity to each input field. No Python-side blake3 dependency needed — routes through fossic's own Rust blake3 path.
+
+<details>
+<summary>Original entry</summary>
 
 **What it is:** The CCE conformance harness (`fossic-py/tests/test_cce_vectors.py`) verifies encoder byte-identity using `cce_encode_value`, `cce_encode_bytes_raw`, and `cce_encode_f64_bits`. It does NOT verify `event_id` derivation because blake3 is not available as a Python package in the test environment. Full event identity (CCE bytes → blake3 → event_id) is only tested at the Rust level.
 
@@ -195,6 +201,8 @@ severity: LOW
 **Recommendation:** Option 2 — cleaner architecture; the harness tests fossic's complete `event_id` derivation (CCE + blake3) through the same code path production callers use, rather than reimplementing blake3 in Python.
 
 **Trigger:** v1.0.0 polish pass, or when a consumer reports an unexpected `event_id` mismatch.
+
+</details>
 
 
 ---
