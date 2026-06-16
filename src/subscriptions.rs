@@ -54,6 +54,21 @@ impl SubscriptionHandle {
     pub fn is_degraded(&self) -> bool {
         self.degraded.load(Ordering::Acquire)
     }
+
+    /// Internal registry ID for this subscription. Useful for diagnostic joins.
+    pub fn registry_id(&self) -> u64 {
+        self.id
+    }
+
+    /// Current fill of the PostCommit delivery queue. `None` for Synchronous subscribers.
+    pub fn queue_depth(&self) -> Option<usize> {
+        self.registry.queue_info(self.id).map(|(depth, _)| depth)
+    }
+
+    /// Capacity of the PostCommit delivery queue. `None` for Synchronous subscribers.
+    pub fn queue_capacity(&self) -> Option<usize> {
+        self.registry.queue_info(self.id).and_then(|(_, cap)| cap)
+    }
 }
 
 impl Drop for SubscriptionHandle {
@@ -285,6 +300,19 @@ impl SubscriptionRegistry {
         }
 
         newly_degraded
+    }
+
+    /// Returns `(queue_depth, queue_capacity)` for the PostCommit subscriber with `id`.
+    /// Returns `None` if the id is not found or is a Synchronous subscriber.
+    pub(crate) fn queue_info(&self, id: u64) -> Option<(usize, Option<usize>)> {
+        let entries = self.entries.read();
+        entries.get(&id).and_then(|entry| {
+            if let SubscriberKind::PostCommit { ref tx, .. } = entry.kind {
+                Some((tx.len(), tx.capacity()))
+            } else {
+                None
+            }
+        })
     }
 
     /// Returns `(id, stream_pattern, branch, cursor)` for all PostCommit subscribers.

@@ -59,23 +59,72 @@ use tauri::{Manager, Runtime};
 
 // ── Subscription map ──────────────────────────────────────────────────────────
 
+/// One entry in the subscription map — handle plus the query parameters that
+/// created it, cached here so commands can report them without re-querying core.
+struct SubscriptionEntry {
+    handle: fossic::SubscriptionHandle,
+    stream_pattern: String,
+    branch: String,
+}
+
+/// Snapshot of a single subscription's state, suitable for IPC serialization.
+#[derive(serde::Serialize, Clone)]
+pub struct SubscriberSnapshot {
+    pub subscription_id: String,
+    pub stream_pattern: String,
+    pub branch: String,
+    pub degraded: bool,
+    pub queue_depth: Option<usize>,
+    pub queue_capacity: Option<usize>,
+}
+
 /// Tauri-managed state that tracks active fossic subscriptions.
 ///
-/// The map maps `subscription_id` (UUID string) → `SubscriptionHandle`.
-/// Dropping a handle unsubscribes; `fossic_unsubscribe` removes and drops it.
-pub struct SubscriptionMap(Mutex<HashMap<String, fossic::SubscriptionHandle>>);
+/// The map keys are UUID strings allocated by `fossic_subscribe`.
+/// Dropping an entry's handle unsubscribes; `fossic_unsubscribe` removes and drops it.
+pub struct SubscriptionMap(Mutex<HashMap<String, SubscriptionEntry>>);
 
 impl SubscriptionMap {
     pub fn new() -> Self {
         SubscriptionMap(Mutex::new(HashMap::new()))
     }
 
-    pub fn insert(&self, id: String, handle: fossic::SubscriptionHandle) {
-        self.0.lock().insert(id, handle);
+    pub fn insert(
+        &self,
+        id: String,
+        handle: fossic::SubscriptionHandle,
+        stream_pattern: String,
+        branch: String,
+    ) {
+        self.0.lock().insert(id, SubscriptionEntry { handle, stream_pattern, branch });
     }
 
     pub fn remove(&self, id: &str) {
         self.0.lock().remove(id);
+    }
+
+    /// Snapshot all active subscriptions for `fossic_list_subscribers`.
+    pub fn snapshot_all(&self) -> Vec<SubscriberSnapshot> {
+        self.0.lock().iter().map(|(id, entry)| SubscriberSnapshot {
+            subscription_id: id.clone(),
+            stream_pattern: entry.stream_pattern.clone(),
+            branch: entry.branch.clone(),
+            degraded: entry.handle.is_degraded(),
+            queue_depth: entry.handle.queue_depth(),
+            queue_capacity: entry.handle.queue_capacity(),
+        }).collect()
+    }
+
+    /// Snapshot a single subscription by UUID for `fossic_subscription_status`.
+    pub fn snapshot_one(&self, id: &str) -> Option<SubscriberSnapshot> {
+        self.0.lock().get(id).map(|entry| SubscriberSnapshot {
+            subscription_id: id.to_string(),
+            stream_pattern: entry.stream_pattern.clone(),
+            branch: entry.branch.clone(),
+            degraded: entry.handle.is_degraded(),
+            queue_depth: entry.handle.queue_depth(),
+            queue_capacity: entry.handle.queue_capacity(),
+        })
     }
 }
 
@@ -102,6 +151,8 @@ pub fn plugin<R: Runtime>(store: Store) -> tauri::plugin::TauriPlugin<R> {
             commands::fossic_read_state_at_version,
             commands::fossic_subscribe,
             commands::fossic_unsubscribe,
+            commands::fossic_list_subscribers,
+            commands::fossic_subscription_status,
             commands::fossic_read_by_correlation,
             commands::fossic_walk_causation,
         ])
@@ -140,6 +191,8 @@ pub fn plugin_with_test_helpers<R: Runtime>(store: Store) -> tauri::plugin::Taur
             commands::fossic_read_state_at_version,
             commands::fossic_subscribe,
             commands::fossic_unsubscribe,
+            commands::fossic_list_subscribers,
+            commands::fossic_subscription_status,
             commands::fossic_read_by_correlation,
             commands::fossic_walk_causation,
             commands::fossic_dispatch_test_event,

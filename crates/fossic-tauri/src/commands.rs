@@ -230,9 +230,39 @@ pub fn fossic_subscribe<R: Runtime>(
         app,
         sub_id: sub_id.clone(),
     };
+    let stream_pattern = q.stream_pattern.clone();
+    let branch = q.branch.clone();
     let handle = store.subscribe(q, mode, handler).map_err(FossicTauriError::from)?;
-    subs.insert(sub_id.clone(), handle);
+    subs.insert(sub_id.clone(), handle, stream_pattern, branch);
     Ok(sub_id)
+}
+
+#[tauri::command]
+pub fn fossic_list_subscribers(
+    subs: State<'_, SubscriptionMap>,
+) -> Vec<crate::SubscriberSnapshot> {
+    subs.snapshot_all()
+}
+
+#[tauri::command]
+pub fn fossic_subscription_status(
+    subs: State<'_, SubscriptionMap>,
+    subscription_id: String,
+) -> serde_json::Value {
+    match subs.snapshot_one(&subscription_id) {
+        Some(snap) => serde_json::json!({
+            "active": true,
+            "degraded": snap.degraded,
+            "queue_depth": snap.queue_depth,
+            "queue_capacity": snap.queue_capacity,
+        }),
+        None => serde_json::json!({
+            "active": false,
+            "degraded": false,
+            "queue_depth": null,
+            "queue_capacity": null,
+        }),
+    }
 }
 
 #[tauri::command]
