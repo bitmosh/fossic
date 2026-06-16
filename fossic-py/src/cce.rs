@@ -2,7 +2,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 
-use crate::types::py_to_json;
+use crate::types::{py_to_json, PyEventId};
 
 /// Encode a Python value using the fossic CCE canonical encoding.
 ///
@@ -69,4 +69,39 @@ pub fn cce_encode_f64_bits<'py>(py: Python<'py>, bits_hex: &str) -> PyResult<Bou
     let mut out = vec![0x03u8];
     out.extend_from_slice(&canonical.to_le_bytes());
     Ok(PyBytes::new(py, &out))
+}
+
+/// Compute the content-addressed event ID for a given event without writing to the store.
+///
+/// This calls the same derivation that ``Store.append()`` uses internally, so the
+/// returned ``EventId`` is byte-identical to the one the store would assign.
+/// Use this to pre-compute or verify event IDs in tests and tooling.
+///
+/// See ``docs/implement/CCE_SPEC.md`` §4 for the derivation spec.
+///
+/// :param event_type: The event type string (e.g. ``"UserCreated"``).
+/// :param payload: Any JSON-serialisable Python value — the event payload dict.
+/// :param type_version: Schema version of the event type. Defaults to ``1``.
+/// :param causation_id: Optional ``EventId`` of the causing event. Matches the
+///     ``causation_id`` field of the ``Append`` that will be stored.
+/// :returns: An ``EventId`` equal to the one the store would assign on append.
+#[pyfunction]
+#[pyo3(signature = (event_type, payload, type_version = 1, causation_id = None))]
+pub fn compute_event_id<'py>(
+    py: Python<'py>,
+    event_type: &str,
+    payload: Bound<'py, PyAny>,
+    type_version: u32,
+    causation_id: Option<PyRef<'py, PyEventId>>,
+) -> PyResult<PyEventId> {
+    let json_value = py_to_json(py, &payload)?;
+    let causation_raw: Option<[u8; 32]> = causation_id.map(|c| *c.inner.as_bytes());
+    let bytes = fossic::cce::derive_event_id(
+        event_type,
+        type_version,
+        causation_raw.as_ref(),
+        &json_value,
+    )
+    .map_err(|e| PyValueError::new_err(format!("CCE error: {e}")))?;
+    Ok(PyEventId { inner: fossic::EventId::from_bytes(bytes) })
 }

@@ -84,6 +84,7 @@ try:
         cce_encode_value as _cce_encode_value_impl,
         cce_encode_bytes_raw as _cce_encode_bytes_raw_impl,
         cce_encode_f64_bits as _cce_encode_f64_bits_impl,
+        compute_event_id as _compute_event_id_impl,
     )
     _RUST_AVAILABLE = True
 except ImportError:
@@ -94,6 +95,7 @@ except ImportError:
     _cce_encode_value_impl = None  # type: ignore[assignment]
     _cce_encode_bytes_raw_impl = None  # type: ignore[assignment]
     _cce_encode_f64_bits_impl = None  # type: ignore[assignment]
+    _compute_event_id_impl = None  # type: ignore[assignment]
 
 from fossic._worker import SubscriptionWorker
 
@@ -502,6 +504,29 @@ def cce_encode_f64_bits(bits_hex: str) -> bytes:
     return _cce_encode_f64_bits_impl(bits_hex)  # type: ignore[misc]
 
 
+def compute_event_id(
+    event_type: str,
+    payload: Any,
+    type_version: int = 1,
+    causation_id: "Optional[EventId]" = None,
+) -> "EventId":
+    """Compute the content-addressed event ID for a given event without writing to the store.
+
+    Calls the same derivation that ``Store.append()`` uses internally (CCE_SPEC §4),
+    so the returned ``EventId`` is byte-identical to the one the store would assign.
+    Use this to pre-compute or verify event IDs in tests and tooling.
+
+    :param event_type: The event type string (e.g. ``"UserCreated"``).
+    :param payload: Any JSON-serialisable Python value — the event payload dict.
+    :param type_version: Schema version of the event type. Defaults to ``1``.
+    :param causation_id: Optional ``EventId`` of the causing event. Must match the
+        ``causation_id`` field of the ``Append`` that will be stored.
+    :returns: An ``EventId`` equal to the one the store would assign on append.
+    :raises ValueError: If the payload is not JSON-serialisable.
+    """
+    return _compute_event_id_impl(event_type, payload, type_version, causation_id)  # type: ignore[misc]
+
+
 __all__ = [
     # Store
     "Store",
@@ -544,4 +569,5 @@ __all__ = [
     "cce_encode_value",
     "cce_encode_bytes_raw",
     "cce_encode_f64_bits",
+    "compute_event_id",
 ]

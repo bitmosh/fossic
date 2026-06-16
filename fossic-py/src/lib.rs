@@ -6,7 +6,7 @@ mod types;
 
 use pyo3::prelude::*;
 
-use cce::{cce_encode_bytes_raw, cce_encode_f64_bits, cce_encode_value};
+use cce::{cce_encode_bytes_raw, cce_encode_f64_bits, cce_encode_value, compute_event_id};
 use errors::register as register_errors;
 use store::PyStore;
 use subscriptions::PyRawSubscriptionHandle;
@@ -40,6 +40,7 @@ fn _fossic(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(cce_encode_value, m)?)?;
     m.add_function(wrap_pyfunction!(cce_encode_bytes_raw, m)?)?;
     m.add_function(wrap_pyfunction!(cce_encode_f64_bits, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_event_id, m)?)?;
 
     Ok(())
 }
