@@ -987,7 +987,7 @@ To add a new standard event type to fossic core (not an extension):
 
 1. Open a proposal documenting the use case, the payload shape, and the determinism implications.
 2. The payload must be representable as JSON-compatible types (objects, arrays, strings, numbers, booleans, null). No binary blobs except as base64-encoded strings or as separate event payloads referenced by id.
-3. The type name uses `snake_case`. Standard types have no namespace prefix; extension types use `<consumer>_<type>` (e.g., `rhyzome_strategy_selected`) or PascalCase with a consumer section in this doc (Cerebra's convention).
+3. The type name uses `snake_case`. Standard types have no namespace prefix; extension types use `<consumer>_<type>` (e.g., `rhyzome_strategy_selected`) or PascalCase with a consumer section in this doc (Cerebra's convention). Choose the casing that matches the consumer codebase's idiom — `snake_case` for Rust consumers (rhyzome, bons.ai), PascalCase for Python consumers (Cerebra).
 4. The OTel mapping is specified.
 5. Test vectors are added to the `agent-trace-test-vectors.json` file.
 
