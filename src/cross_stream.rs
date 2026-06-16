@@ -2,6 +2,7 @@ use crate::{
     error::Error,
     read::{row_to_event, PREFIXED_SELECT_COLS, SELECT_COLS},
     types::StoredEvent,
+    upcasters::{apply_upcaster, UpcasterRegistry},
     EventId,
 };
 use rusqlite::Connection;
@@ -187,6 +188,7 @@ pub(crate) fn aggregate_impl<A: Aggregate>(
     conn: &Connection,
     query: AggregateQuery,
     mut agg: A,
+    upcasters: &UpcasterRegistry,
 ) -> Result<A::Output, Error> {
     // Use NULL-guard pattern so all 5 params are always bound.
     // (?3 IS NULL OR event_type = ?3) short-circuits when filter is absent.
@@ -211,7 +213,7 @@ pub(crate) fn aggregate_impl<A: Aggregate>(
         row_to_event,
     )?;
     for row in rows {
-        let event = row?;
+        let event = apply_upcaster(upcasters, row?)?;
         agg.fold(&event);
     }
     Ok(agg.finalize())

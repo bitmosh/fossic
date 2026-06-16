@@ -18,16 +18,10 @@ pub(crate) struct TransformEntry {
 
 /// Returns `true` if `pattern` matches `stream_id`.
 ///
-/// `*` matches exactly one path segment (no slashes). Segments are split on `/`.
-/// Examples: `"*"` matches `"foo"` but not `"foo/bar"`.
-///           `"cerebra/lattice/*"` matches `"cerebra/lattice/abc"`.
+/// Delegates to `crate::glob::matches` — `*` matches one segment, `**` matches
+/// zero or more segments. Consistent with the subscription glob system.
 pub(crate) fn pattern_matches(pattern: &str, stream_id: &str) -> bool {
-    let pparts: Vec<&str> = pattern.split('/').collect();
-    let sparts: Vec<&str> = stream_id.split('/').collect();
-    if pparts.len() != sparts.len() {
-        return false;
-    }
-    pparts.iter().zip(sparts.iter()).all(|(p, s)| *p == "*" || p == s)
+    crate::glob::matches(pattern, stream_id)
 }
 
 /// Apply all transforms whose pattern matches `stream_id`, chaining in registration order.
@@ -74,5 +68,13 @@ mod tests {
     fn pattern_no_match_segment_count() {
         assert!(!pattern_matches("a/b", "a/b/c"));
         assert!(!pattern_matches("a/b/c", "a/b"));
+    }
+
+    #[test]
+    fn pattern_double_star() {
+        assert!(pattern_matches("cerebra/**", "cerebra/lattice/abc"));
+        assert!(pattern_matches("cerebra/**", "cerebra/agent-trace/sess_123"));
+        assert!(pattern_matches("cerebra/**", "cerebra"));
+        assert!(!pattern_matches("cerebra/**", "other/lattice/abc"));
     }
 }

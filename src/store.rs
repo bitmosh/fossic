@@ -358,8 +358,19 @@ impl Store {
         &self,
         correlation_id: EventId,
     ) -> Result<Vec<StoredEvent>, Error> {
-        let conn = self.lock()?;
-        read_by_correlation_impl(&conn, correlation_id)
+        let events = {
+            let conn = self.lock()?;
+            read_by_correlation_impl(&conn, correlation_id)?
+        };
+        let upcasters = self
+            .inner
+            .upcasters
+            .read()
+            .map_err(|_| Error::Internal("upcasters lock poisoned".into()))?;
+        events
+            .into_iter()
+            .map(|e| apply_upcaster(&upcasters, e))
+            .collect()
     }
 
     pub fn walk_causation(
@@ -368,8 +379,19 @@ impl Store {
         direction: WalkDirection,
         max_depth: usize,
     ) -> Result<Vec<StoredEvent>, Error> {
-        let conn = self.lock()?;
-        walk_causation_impl(&conn, start, direction, max_depth)
+        let events = {
+            let conn = self.lock()?;
+            walk_causation_impl(&conn, start, direction, max_depth)?
+        };
+        let upcasters = self
+            .inner
+            .upcasters
+            .read()
+            .map_err(|_| Error::Internal("upcasters lock poisoned".into()))?;
+        events
+            .into_iter()
+            .map(|e| apply_upcaster(&upcasters, e))
+            .collect()
     }
 
     pub fn aggregate<A: Aggregate>(
@@ -377,8 +399,13 @@ impl Store {
         query: AggregateQuery,
         agg: A,
     ) -> Result<A::Output, Error> {
+        let upcasters = self
+            .inner
+            .upcasters
+            .read()
+            .map_err(|_| Error::Internal("upcasters lock poisoned".into()))?;
         let conn = self.lock()?;
-        aggregate_impl(&conn, query, agg)
+        aggregate_impl(&conn, query, agg, &upcasters)
     }
 
     // ── Upcasters ─────────────────────────────────────────────────────────────
