@@ -98,6 +98,7 @@ except ImportError:
     _compute_event_id_impl = None  # type: ignore[assignment]
 
 from fossic._worker import SubscriptionWorker
+from fossic.relay import RelayAgent, RelayConfig, relay_append, run_relay  # type: ignore[import]
 
 
 # ── Python-level SubscriptionHandle ──────────────────────────────────────────
@@ -584,4 +585,9 @@ __all__ = [
     "cce_encode_bytes_raw",
     "cce_encode_f64_bits",
     "compute_event_id",
+    # Relay
+    "RelayConfig",
+    "RelayAgent",
+    "relay_append",
+    "run_relay",
 ]
