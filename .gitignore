@@ -68,6 +68,8 @@ fossic-node/index.d.ts.bak
 /tmp/
 **/test-fossic-*.db
 **/test-fossic-*/
+.venv-test/
+fossic-py/.venv-test/
 
 # Benchmark outputs (the script lives in repo; outputs do not)
 benchmarks/results/
