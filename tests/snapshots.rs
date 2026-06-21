@@ -225,3 +225,106 @@ fn snapshot_on_branch() {
     assert_eq!(info.branch, "b1");
     assert_eq!(info.version, 0); // branch has 1 event at version 0
 }
+
+// ── auto_gc_orphans behavior ──────────────────────────────────────────────────
+
+#[test]
+fn auto_gc_orphans_flag_off_no_gc_on_drop() {
+    // Snapshot taken with CountReducer registered; then a store with no reducer
+    // and auto_gc_orphans=false is dropped. Orphaned snapshot must survive.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.db");
+
+    let store1 = Store::open(path.clone(), OpenOptions::default()).unwrap();
+    store1.declare_stream("s1", "test", None).unwrap();
+    store1.register_reducer("s1", CountReducer).unwrap();
+    append_count_events(&store1, "s1", &[1]);
+    store1.take_snapshot("s1", "main").unwrap();
+    drop(store1);
+
+    {
+        let _store2 = Store::open(
+            path.clone(),
+            OpenOptions { auto_gc_orphans: false, ..Default::default() },
+        )
+        .unwrap();
+        // no reducer registered — drop without GC
+    }
+
+    let store3 = Store::open(path.clone(), OpenOptions::default()).unwrap();
+    store3.register_reducer("s1", CountReducer).unwrap();
+    let snap = store3.snapshot_info("s1", "main", "count_reducer").unwrap();
+    assert!(snap.is_some(), "snapshot must survive when auto_gc_orphans=false");
+}
+
+#[test]
+fn auto_gc_orphans_flag_on_gc_fires_on_drop() {
+    // Snapshot taken with CountReducer registered; then a store with no reducer
+    // and auto_gc_orphans=true is dropped. Orphaned snapshot must be removed.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.db");
+
+    let store1 = Store::open(path.clone(), OpenOptions::default()).unwrap();
+    store1.declare_stream("s1", "test", None).unwrap();
+    store1.register_reducer("s1", CountReducer).unwrap();
+    append_count_events(&store1, "s1", &[1]);
+    store1.take_snapshot("s1", "main").unwrap();
+    drop(store1);
+
+    {
+        let _store2 = Store::open(
+            path.clone(),
+            OpenOptions { auto_gc_orphans: true, ..Default::default() },
+        )
+        .unwrap();
+        // no reducer registered — drop fires GC
+    }
+
+    let store3 = Store::open(path.clone(), OpenOptions::default()).unwrap();
+    store3.register_reducer("s1", CountReducer).unwrap();
+    let snap = store3.snapshot_info("s1", "main", "count_reducer").unwrap();
+    assert!(snap.is_none(), "orphaned snapshot must be removed when auto_gc_orphans=true");
+}
+
+#[test]
+fn auto_gc_orphans_only_fires_on_last_clone_drop() {
+    // With two Store clones sharing the same Arc, GC must not fire until the
+    // LAST clone drops (Arc::strong_count == 1 guard).
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("test.db");
+
+    // Seed: snapshot with CountReducer registered.
+    let store_seed = Store::open(path.clone(), OpenOptions::default()).unwrap();
+    store_seed.declare_stream("s1", "test", None).unwrap();
+    store_seed.register_reducer("s1", CountReducer).unwrap();
+    append_count_events(&store_seed, "s1", &[1]);
+    store_seed.take_snapshot("s1", "main").unwrap();
+    drop(store_seed);
+
+    // Open with auto_gc_orphans=true, no reducers; clone it.
+    let store_a = Store::open(
+        path.clone(),
+        OpenOptions { auto_gc_orphans: true, ..Default::default() },
+    )
+    .unwrap();
+    let store_b = store_a.clone();
+
+    // Drop clone A — strong_count goes from 2 → 1 in store_b, but our check in A's
+    // Drop sees count == 2 and skips GC.
+    drop(store_a);
+
+    // Snapshot must still exist.
+    let store_check = Store::open(path.clone(), OpenOptions::default()).unwrap();
+    store_check.register_reducer("s1", CountReducer).unwrap();
+    let snap_before = store_check.snapshot_info("s1", "main", "count_reducer").unwrap();
+    assert!(snap_before.is_some(), "snapshot must survive while a clone is still alive");
+    drop(store_check);
+
+    // Drop clone B — last reference; GC fires.
+    drop(store_b);
+
+    let store_final = Store::open(path.clone(), OpenOptions::default()).unwrap();
+    store_final.register_reducer("s1", CountReducer).unwrap();
+    let snap_after = store_final.snapshot_info("s1", "main", "count_reducer").unwrap();
+    assert!(snap_after.is_none(), "orphaned snapshot must be removed when the last clone drops");
+}

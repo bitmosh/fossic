@@ -124,6 +124,11 @@ pub(crate) fn snapshot_info_impl(
 
 // ── GC ────────────────────────────────────────────────────────────────────────
 
+// CP-T2-1: When Phase 7 (Background Executor) lands, supplement
+// this drop-time GC with quiescent-window scheduling via
+// BackgroundExecutor::schedule(GcOrphanSnapshots, TaskPriority::Low).
+// Keep this drop-time call as final-shutdown cleanup.
+
 /// Delete snapshots whose `(reducer_name, state_schema_version)` is not in `active`.
 ///
 /// Returns the number of rows deleted.

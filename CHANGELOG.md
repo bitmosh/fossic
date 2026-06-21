@@ -5,6 +5,28 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.2.2 — 2026-06-21 — auto_gc_orphans: drop-time GC fallback (Phase 6 close)
+
+**Pass report:** `docs/aseptic/blast-radius/pass-1.2.2.md`
+
+### Added
+
+- `OpenOptions::auto_gc_orphans: bool` — when `true`, `gc_orphaned_snapshots` is called at
+  store drop time (when the last `Store` clone is dropped), purging snapshots whose reducer is
+  no longer registered. Default: `false`. Drop-time GC fires only on the last clone (guarded by
+  `Arc::strong_count == 1`). Phase 7 (v1.3.1) supplements this with background-scheduled GC
+  via `BackgroundExecutor`; this drop-time call is retained as final-shutdown cleanup even when
+  Phase 7 is present.
+- `impl Drop for Store` — wires the `auto_gc_orphans` flag; errors are silently dropped (GC is
+  best-effort; callers who need a count can call `gc_orphaned_snapshots` explicitly).
+- CP-T2-1 marker in `src/snapshots.rs` — Phase 7 integration point for the GC scheduler.
+- `fossic-py/src/types.rs` — manual `OpenOptions` struct literal updated with
+  `auto_gc_orphans: false`.
+- `tests/snapshots.rs` — 3 new tests: `auto_gc_orphans_flag_off_no_gc_on_drop`,
+  `auto_gc_orphans_flag_on_gc_fires_on_drop`, `auto_gc_orphans_only_fires_on_last_clone_drop`.
+
+---
+
 ## v1.2.1 — 2026-06-21 — ReducerStateLarge emission + StateAdaptive policy
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.2.1.md`

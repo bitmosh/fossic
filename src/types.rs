@@ -220,6 +220,14 @@ pub struct OpenOptions {
     /// `(stream_id, branch)`. Emission is throttled to at most once per 60 seconds per group.
     /// Default: 1 MiB (1_048_576). Set to `usize::MAX` to disable.
     pub reducer_state_large_threshold_bytes: usize,
+    /// When `true`, `gc_orphaned_snapshots` is called at store drop time (when the last
+    /// `Store` clone is dropped) to purge snapshots whose reducer is no longer registered.
+    /// Default: `false`.
+    ///
+    /// Phase 7 (v1.3.1) supplements this with recurring background-scheduled GC via
+    /// `BackgroundExecutor`; this drop-time call is retained as final-shutdown cleanup even
+    /// when Phase 7 is present.
+    pub auto_gc_orphans: bool,
 }
 
 impl Default for OpenOptions {
@@ -234,6 +242,7 @@ impl Default for OpenOptions {
             default_max_results: None,
             default_max_bytes: None,
             reducer_state_large_threshold_bytes: 1_048_576,
+            auto_gc_orphans: false,
         }
     }
 }
@@ -326,11 +335,16 @@ pub enum BudgetKind {
 pub enum ReadOutcome<T> {
     /// All matching events were returned; no truncation occurred.
     Complete(T),
-    /// The result was truncated by a budget limit. Feed `cursor` to the
-    /// same bounded read method to resume from where this one stopped.
+    /// The result was truncated by a budget limit.
+    ///
+    /// `cursor` is `Some` for pageable reads (range, correlation, causation walk) — pass it
+    /// back to the same bounded method to continue from where this page stopped.
+    /// `cursor` is `None` for `aggregate_bounded` results: fold-resume requires re-feeding
+    /// partial state into a new aggregator instance, which `Aggregate` does not yet support.
+    /// Deferred to v1.2.x.
     Truncated {
         data: T,
-        cursor: TruncationCursor,
+        cursor: Option<TruncationCursor>,
         reason: TruncationReason,
     },
 }

@@ -18,8 +18,9 @@ use crate::{
         resolve_branch_chain, BranchSegment,
     },
     cross_stream::{
-        aggregate_impl, read_by_correlation_bounded_impl, read_by_correlation_impl,
-        walk_causation_bounded_impl, walk_causation_impl, Aggregate, AggregateQuery, WalkDirection,
+        aggregate_bounded_impl, aggregate_impl, read_by_correlation_bounded_impl,
+        read_by_correlation_impl, walk_causation_bounded_impl, walk_causation_impl, Aggregate,
+        AggregateQuery, WalkDirection,
     },
     cursors::{get_cursor_impl, set_cursor_impl},
     deletion::{purge_event_impl, shred_stream_impl},
@@ -161,6 +162,14 @@ struct StoreInner {
 #[derive(Clone)]
 pub struct Store {
     inner: Arc<StoreInner>,
+}
+
+impl Drop for Store {
+    fn drop(&mut self) {
+        if self.inner.options.auto_gc_orphans && Arc::strong_count(&self.inner) == 1 {
+            let _ = self.gc_orphaned_snapshots();
+        }
+    }
 }
 
 impl Store {
@@ -842,6 +851,35 @@ impl Store {
             .map_err(|_| Error::Internal("upcasters lock poisoned".into()))?;
         let conn = self.read_conn()?;
         aggregate_impl(&conn, query, agg, &upcasters)
+    }
+
+    /// Bounded variant of `aggregate`. Folds events until `max_events_scanned` events have
+    /// been processed or `max_bytes` of payload have accumulated, then returns
+    /// `ReadOutcome::Complete(output)` or `ReadOutcome::Truncated { data: output, cursor: None, .. }`.
+    ///
+    /// On truncation the aggregator is cloned at the cut point and `finalize()` runs on
+    /// the clone. `cursor` is always `None` — fold-resume requires re-feeding partial state
+    /// into a new aggregator instance, which `Aggregate` does not yet support. Deferred to v1.2.x.
+    ///
+    /// Budget resolution (per-call takes precedence over store-level defaults):
+    /// - effective events = `max_events_scanned` ?? `OpenOptions::default_max_results` ?? unbounded
+    /// - effective bytes  = `max_bytes` ?? `OpenOptions::default_max_bytes` ?? unbounded
+    pub fn aggregate_bounded<A: Aggregate + Clone>(
+        &self,
+        query: AggregateQuery,
+        agg: A,
+        max_events_scanned: Option<usize>,
+        max_bytes: Option<usize>,
+    ) -> Result<ReadOutcome<A::Output>, Error> {
+        let effective_events = max_events_scanned.or(self.inner.options.default_max_results);
+        let effective_bytes = max_bytes.or(self.inner.options.default_max_bytes);
+        let upcasters = self
+            .inner
+            .upcasters
+            .read()
+            .map_err(|_| Error::Internal("upcasters lock poisoned".into()))?;
+        let conn = self.read_conn()?;
+        aggregate_bounded_impl(&conn, query, agg, &upcasters, effective_events, effective_bytes)
     }
 
     // ── Upcasters ─────────────────────────────────────────────────────────────
