@@ -26,7 +26,7 @@ pub(crate) trait StoreOps: Send + Sync + 'static {
 // ── TaskPriority ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum TaskPriority {
+pub enum TaskPriority {
     Low = 0,
     Normal = 1,
     High = 2,
@@ -35,9 +35,13 @@ pub(crate) enum TaskPriority {
 // ── TaskKind ──────────────────────────────────────────────────────────────────
 
 #[derive(Clone)]
-pub(crate) enum TaskKind {
+pub enum TaskKind {
     GcOrphanSnapshots,
     TakeSnapshot { stream_id: String, branch: String },
+    /// One-shot or recurring user-supplied closure. The closure captures
+    /// any context it needs (e.g. `Arc<HnswProvider>`) at scheduling time.
+    /// Custom tasks are never `persist_on_drop` — set that field to `false`.
+    Custom(std::sync::Arc<dyn Fn() + Send + Sync + 'static>),
 }
 
 impl TaskKind {
@@ -45,25 +49,26 @@ impl TaskKind {
         match self {
             TaskKind::GcOrphanSnapshots => "GcOrphanSnapshots",
             TaskKind::TakeSnapshot { .. } => "TakeSnapshot",
+            TaskKind::Custom(_) => "Custom",
         }
     }
 }
 
 // ── BacklogTask ───────────────────────────────────────────────────────────────
 
-pub(crate) struct BacklogTask {
-    pub(crate) priority: TaskPriority,
+pub struct BacklogTask {
+    pub priority: TaskPriority,
     /// Absolute deadline in microseconds since Unix epoch.
     /// Earlier deadline wins when priorities are equal.
-    pub(crate) deadline_us: i64,
+    pub deadline_us: i64,
     /// When `true`, a `DeferredTaskDropped` system event is emitted at shutdown
     /// if this task was not executed. When `false`, the task is logged and dropped.
-    pub(crate) persist_on_drop: bool,
-    pub(crate) kind: TaskKind,
+    pub persist_on_drop: bool,
+    pub kind: TaskKind,
     /// When `Some(d)`, the task re-queues itself with `deadline = now + d`
     /// after each successful execution. Recurring tasks run at most once per
     /// quiescence window regardless of their deadline.
-    pub(crate) recurring_interval: Option<Duration>,
+    pub recurring_interval: Option<Duration>,
 }
 
 impl PartialEq for BacklogTask {
@@ -135,7 +140,7 @@ impl QuiescenceMonitor {
 
 // ── BackgroundExecutor ────────────────────────────────────────────────────────
 
-pub(crate) struct BackgroundExecutor {
+pub struct BackgroundExecutor {
     task_tx: crossbeam_channel::Sender<BacklogTask>,
     stop_flag: Arc<AtomicBool>,
     done_rx: crossbeam_channel::Receiver<()>,
@@ -180,7 +185,7 @@ impl BackgroundExecutor {
         })
     }
 
-    pub(crate) fn schedule(&self, task: BacklogTask) {
+    pub fn schedule(&self, task: BacklogTask) {
         let _ = self.task_tx.send(task);
     }
 }
@@ -302,6 +307,7 @@ fn execute_task(ops: &dyn StoreOps, task: &BacklogTask) {
                 eprintln!("[WARN fossic] fossic-bg: TakeSnapshot({stream_id}, {branch}) failed: {e}");
             }
         }
+        TaskKind::Custom(f) => f(),
     }
 }
 
@@ -365,5 +371,43 @@ mod tests {
         let qm = QuiescenceMonitor::new();
         qm.note_dispatch();
         assert!(!qm.is_quiescent(2_000_000));
+    }
+
+    #[test]
+    fn custom_task_closure_executes() {
+        use std::sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        };
+
+        struct MockOps;
+        impl StoreOps for MockOps {
+            fn bg_gc_orphaned_snapshots(&self) -> Result<usize, crate::error::Error> {
+                Ok(0)
+            }
+            fn bg_take_snapshot(
+                &self,
+                _: &str,
+                _: &str,
+            ) -> Result<crate::types::SnapshotInfo, crate::error::Error> {
+                Err(crate::error::Error::NotImplemented { feature: "mock" })
+            }
+        }
+
+        let ran = Arc::new(AtomicBool::new(false));
+        let ran2 = Arc::clone(&ran);
+
+        let task = BacklogTask {
+            priority: TaskPriority::Normal,
+            deadline_us: 0,
+            persist_on_drop: false,
+            kind: TaskKind::Custom(Arc::new(move || {
+                ran2.store(true, Ordering::SeqCst);
+            })),
+            recurring_interval: None,
+        };
+
+        execute_task(&MockOps as &dyn StoreOps, &task);
+        assert!(ran.load(Ordering::SeqCst), "Custom closure must execute");
     }
 }
