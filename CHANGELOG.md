@@ -5,6 +5,14 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.3.0 — 2026-06-21 — Phase 7 open: Background Executor + Quiescent Operations
+
+Version bump only. Closes Phase 6 (Snapshot Policies: v1.2.0–v1.2.2).
+Opens Phase 7 (Background Executor + Quiescent Operations). No API changes.
+Pass-complete will ship with Phase 7's first substantive commit.
+
+---
+
 ## v1.2.2 — 2026-06-21 — auto_gc_orphans: drop-time GC fallback (Phase 6 close)
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.2.2.md`
