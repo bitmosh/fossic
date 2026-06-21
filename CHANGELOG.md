@@ -5,6 +5,36 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.7.2 — 2026-06-21 — D2 persistence: HnswProvider save/load
+
+**Pass report:** `docs/aseptic/blast-radius/pass-1.7.2.md`
+
+### fossic-similarity-hnsw: persistence layer
+
+- `HnswProvider::save_to_disk()` — atomically saves the live index: hnsw_rs `file_dump` writes `hnsw/index.hnsw.data` + `hnsw/index.hnsw.graph`; `mappings.bin` (msgpack with version byte `0x01`) written second. If any write fails, all three files are removed before the error is returned — no partial saves on disk.
+- Empty-index save path — skips hnsw_rs graph dump; writes a valid empty `mappings.bin` only. Reload of an empty save returns a functional zero-vector provider.
+- Auto-load on construction — `HnswProvider::new` calls `try_load_or_init`: if all three index files exist, they are loaded immediately. On corruption, emits `HnswIndexCorrupted` event and starts empty.
+- `load_hnsw_catching_panics` helper — wraps `HnswIo::load_hnsw` in `std::panic::catch_unwind(AssertUnwindSafe(...))`. hnsw_rs uses `assert_eq!` for format validation; a corrupt data file panics instead of returning `Err`. Panic is caught and converted to `HnswError::IndexCorrupted`.
+- `MappingsFile` — serde-derived struct serialized via rmp_serde; holds `usize_to_event_id: Vec<EventId>` and `event_id_to_stream_id: HashMap<EventId, String>`.
+- `MAPPINGS_VERSION = 0x01` — version byte at file offset 0 in `mappings.bin`. Mismatch returns `HnswError::MappingsVersionMismatch(u8)`.
+- `HnswIndexLoaded`, `HnswIndexCorrupted` system events added alongside the existing `HnswIndexBuilt` — all tagged `{"event_class":"hnsw"}` via the lazy `Mutex<Option<SystemStreamWriter>>` pattern.
+- File path helpers: `index_data_path()`, `index_graph_path()`, `mappings_bin_path()`, `cleanup_index_files()`.
+
+### Deviation from brief
+
+The v1.7.2 brief specified `index.bin` as the target filename. hnsw_rs's native `file_dump` produces two files (`{basename}.hnsw.data` + `{basename}.hnsw.graph`) with no single-file option. Both files are treated as a unit for save, load, and cleanup. Documented in provider.rs comments.
+
+### Tests
+
+14 integration tests (11 carried over from v1.7.1 + 3 new persistence tests):
+- `persistence_round_trip_with_stream_filter` — 1000 vectors across 5 streams, save + reload, verify len and stream-filtered query
+- `save_and_load_empty_index` — empty save round-trips correctly
+- `corrupt_index_data_file_recovers_to_empty` — truncated data file triggers `catch_unwind`; provider recovers to operational empty state
+- `corrupt_mappings_version_byte_recovers_to_empty` — invalid version byte → `MappingsVersionMismatch` → empty recovery
+- `partial_save_cleans_up_all_files` — graph files written, then mappings write fails (mappings.bin pre-created as directory); both graph files cleaned up
+
+---
+
 ## v1.7.1 — 2026-06-21 — D2 core: HnswProvider live implementation
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.7.1.md`
