@@ -204,10 +204,12 @@ Implementations exist in Rust (canonical), Python, and TypeScript. All three sha
 pub struct Store { /* opaque */ }
 
 pub struct OpenOptions {
-    pub encryption: EncryptionMode,         // Plaintext | OsKeyring | EnvVar(String)
-    pub checkpoint_mode: CheckpointMode,    // Auto (only mode in v1)
+    pub encryption: EncryptionMode,             // Plaintext | OsKeyring | EnvVar(String)
+    pub checkpoint_mode: CheckpointMode,        // Auto (only mode in v1)
     pub similarity_search: Option<Box<dyn SimilaritySearchProvider>>,
-    pub on_first_open: FirstOpenPolicy,     // CreateIfMissing | RequireExisting
+    pub on_first_open: FirstOpenPolicy,         // CreateIfMissing | RequireExisting
+    pub default_max_results: Option<usize>,     // store-level result budget; per-call overrides
+    pub default_max_bytes: Option<usize>,       // store-level byte budget; per-call overrides
 }
 
 impl Store {
@@ -258,9 +260,33 @@ impl Store {
 
     // --- Cross-stream queries ---
     pub fn read_by_correlation(&self, correlation_id: EventId) -> Result<Vec<StoredEvent>>;
+    pub fn read_by_correlation_bounded(&self, correlation_id: EventId,
+        max_results: Option<usize>, max_bytes: Option<usize>,
+        cursor: Option<TruncationCursor>) -> Result<ReadOutcome<Vec<StoredEvent>>>;
     pub fn walk_causation(&self, start: EventId, direction: WalkDirection,
                            max_depth: usize) -> Result<Vec<StoredEvent>>;
+    pub fn walk_causation_bounded(&self, start: EventId, direction: WalkDirection,
+        max_depth: usize, sampling: SamplingMode,
+        max_results: Option<usize>, max_bytes: Option<usize>,
+        cursor: Option<TruncationCursor>) -> Result<ReadOutcome<Vec<StoredEvent>>>;
     pub fn aggregate<A: Aggregate>(&self, query: AggregateQuery) -> Result<A::Output>;
+    pub fn aggregate_bounded<A: Aggregate + Clone>(&self, query: AggregateQuery, agg: A,
+        max_events_scanned: Option<usize>, max_bytes: Option<usize>) -> Result<ReadOutcome<A::Output>>;
+
+    // --- Read (bounded) ---
+    pub fn read_range_bounded(&self, query: ReadQuery,
+        max_results: Option<usize>, max_bytes: Option<usize>,
+        cursor: Option<TruncationCursor>) -> Result<ReadOutcome<Vec<StoredEvent>>>;
+
+    // --- Streaming iterators ---
+    pub fn read_range_iter(&self, query: ReadQuery) -> RangeIter;
+    pub fn read_by_correlation_iter(&self, correlation_id: EventId) -> CorrelationIter;
+    pub fn walk_causation_iter(&self, start: EventId, direction: WalkDirection,
+        max_depth: usize, sampling: SamplingMode) -> CausationIter;
+
+    // --- Observability ---
+    pub fn dispatch_channel_pressure(&self) -> usize;
+    pub fn dispatch_channel_high_water_mark(&self) -> usize;
 
     // --- Upcasters ---
     pub fn register_upcaster<U: Upcaster>(&self, event_type: &str,
@@ -280,6 +306,46 @@ impl Store {
                        branch: &str) -> Result<Option<u64>>;
     pub fn set_cursor(&self, consumer_id: &str, stream_id: &str, branch: &str,
                        version: u64) -> Result<()>;
+}
+```
+
+Bounded read types:
+
+```rust
+pub enum ReadOutcome<T> {
+    Complete(T),
+    Truncated {
+        data: T,
+        cursor: Option<TruncationCursor>,
+        reason: TruncationReason,
+    },
+}
+
+pub enum TruncationReason { ResultCount, ByteSize }
+
+pub struct TruncationCursor(Vec<u8>);   // opaque
+impl TruncationCursor {
+    pub fn from_bytes(bytes: Vec<u8>) -> Self;
+    pub fn as_bytes(&self) -> &[u8];
+    pub fn into_bytes(self) -> Vec<u8>;
+}
+
+pub enum SamplingMode {
+    Exhaustive,
+    BreadthFirst { max_per_level: usize },
+    Adaptive { target_count: usize },
+}
+
+pub struct ReadQuery {
+    pub stream_id: String,
+    pub branch: String,
+    pub from_version: Option<u64>,
+    pub to_version: Option<u64>,
+    pub limit: Option<usize>,
+    pub event_type_filter: Option<String>,
+}
+impl ReadQuery {
+    pub fn stream(stream_id: impl Into<String>) -> Self;  // convenience constructor
 }
 ```
 
@@ -921,11 +987,15 @@ Three first-class APIs and one extension point.
 
 Use cases: LumaWeave subgraph highlighting (one user action triggers events across Cerebra, Policy Scout, LumaWeave; correlation_id ties them), debugging a multi-module operation.
 
+`read_by_correlation_bounded` adds result and byte budgets with cursor resumption. Use when the correlation group is unbounded or unknown in size.
+
 ### 10.2 Causation chain walk
 
 `store.walk_causation(start_event_id, direction, max_depth)` walks the `causation_id` graph forward (children: events whose causation_id is the start), backward (ancestors), or both. Implemented as a SQLite recursive CTE.
 
 Use cases: bons.ai lineage walk ("show me the full ancestor chain of idea X"), incident forensics ("what did this initial event lead to").
+
+`walk_causation_bounded` adds budgets, cursor resumption, and `SamplingMode` (Exhaustive / BreadthFirst / Adaptive). `walk_causation_iter` streams the same walk as a `FusedIterator` that releases its pool connection before each yield.
 
 ### 10.3 Aggregation over indexed_tags
 
@@ -945,6 +1015,8 @@ result = store.aggregate(AggregateQuery(
 ```
 
 Consumers populate `indexed_tags` at append time with the few fields they need for aggregation. Cost: one indexed JSON column. Benefit: efficient projection queries without msgpack decoding.
+
+`aggregate_bounded` adds event and byte budgets. Truncated results do not carry a cursor — fold-resume requires injecting partial aggregator state, deferred to v1.2.x.
 
 ### 10.4 Similarity search (extension point only)
 
@@ -1110,6 +1182,46 @@ A reverse-index of which v1 features each consumer profile drove:
 | `deterministic: false` default | Rhyzome (push: visible cost is correct failure mode) |
 | Per-tool determinism registry | bons.ai (per-role table), rhyzome (per-tool table) |
 | Subscription mode split | LumaWeave (real-time Graph B), Cerebra (backpressure-tolerant) |
+
+---
+
+## 18. Phase Roadmap
+
+### Phase 1 — Bounded Resource API (v1.1.0–v1.1.9) — **CLOSED**
+
+Phase 1 ships the OOM safety net and the foundational primitives that Phases 2–5 depend on.
+
+| Version | Deliverable |
+|---|---|
+| v1.1.0 | Foundation types: `ReadOutcome`, `TruncationCursor`, `SamplingMode`, `BudgetKind`; `OpenOptions` defaults; dispatch channel observability; `parking_lot` direct dep |
+| v1.1.1 | `SystemStreamWriter` abstraction; `SubscriptionDegraded` emit refactored through it |
+| v1.1.2 | `read_range_bounded` + `read_by_correlation_bounded` with cursor resume |
+| v1.1.3 | `walk_causation_bounded` with three sampling modes; Rust-side BFS replaces recursive CTE |
+| v1.1.4 | `aggregate_bounded` with Clone-snapshot finalize |
+| v1.1.5 | Streaming iterators: `read_range_iter`, `read_by_correlation_iter`, `walk_causation_iter`; pool-release invariant |
+| v1.1.6 | Python binding surface (`fossic-py`) |
+| v1.1.7 | Node.js binding surface (`fossic-node`) |
+| v1.1.8 | Tauri IPC bounded commands (`fossic-tauri`) |
+| v1.1.9 | Documentation pass |
+| v1.6.0 | Phase 1 close |
+
+Track 2 shipped Phases 6, 7, and 8 in parallel (v1.2.0–v1.5.0).
+
+### Phase 2 — Hardware-Aware Defaults (upcoming)
+
+Detect CPU core count, available memory, and storage class at `Store::open` time; apply appropriate defaults for `read_pool_size`, `default_max_results`, `default_max_bytes`, and `background_executor_grace_timeout_ms`. No API surface changes — only `OpenOptions` defaults change.
+
+### Phase 3 — Pressure-Aware Substrate (upcoming)
+
+Automated back-pressure detection using `dispatch_channel_pressure()` and the `SubscriptionDegraded` system event stream. A `PressureMonitor` component will surface actionable signals (degraded queues, back-pressure accumulation, queue-depth trends) without requiring application instrumentation.
+
+### Phase 4 — Adaptive Subscription Delivery (upcoming)
+
+Dynamic queue expansion, subscriber shedding under sustained overload, and prioritized delivery for system-stream subscribers. Builds on Phase 3's monitoring substrate.
+
+### Phase 5 — Catalyst (upcoming)
+
+AI agent integration layer. Structured trace storage, replay-safe determinism registry, and cross-session lineage queries. Depends on Phases 2–4 for safe background execution under agent-scale write rates.
 
 ---
 
