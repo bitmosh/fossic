@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "fossic"
-version = "0.1.0"
+version = "1.7.1"
 description = "Local-first event sourcing with content-addressed event identity"
 license = { text = "MIT OR Apache-2.0" }
 requires-python = ">=3.11"
