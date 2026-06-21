@@ -5,6 +5,28 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.5.0 — 2026-06-21 — Track 2 close: fossic core substrate-complete
+
+**Pass report:** `docs/aseptic/blast-radius/pass-1.5.0.md`
+
+Track 2 closes. Phases 6, 7, and 8 are fully shipped. The fossic substrate is
+complete for local-first event sourcing with background execution, quiescence-gated
+snapshot policies, and federated project discovery primitives.
+
+**Track 2 arc:**
+- v1.2.0 — `EveryNEvents` snapshot policy (Phase 6 open)
+- v1.2.1 — `ReducerStateLarge` diagnostics + `StateAdaptive` policy
+- v1.2.2 — `auto_gc_orphans`, Phase 6 close
+- v1.3.0 — `BackgroundExecutor` + `QuiescenceMonitor` scaffold (Phase 7 open)
+- v1.3.1 — `EveryNSeconds` enforcement + recurring background GC, Phase 7 close
+- v1.4.0 — `ProjectRegistered` + `RelayHeartbeat` emit primitives (Phase 8 open)
+- v1.4.1 — Project registration docs pass
+- v1.5.0 — Track 2 close (this version)
+
+No new API or behavior changes. Version bump marks the substrate-complete milestone.
+
+---
+
 ## v1.4.1 — 2026-06-21 — Documentation: project registration for federated deployments
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.4.1.md`
