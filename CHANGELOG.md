@@ -107,6 +107,46 @@ writes from separate connections without contention.
 
 ---
 
+## v1.1.4 — 2026-06-21 — Bounded Resource API: aggregate_bounded with Clone-snapshot finalize
+
+**Pass report:** `docs/aseptic/blast-radius/pass-1.1.4.md`
+
+### Added
+
+- `Store::aggregate_bounded<A: Aggregate + Clone>(query, agg, max_events_scanned, max_bytes)`
+  — bounded aggregate variant. Folds events until `max_events_scanned` events have been
+  processed or `max_bytes` of payload have accumulated. On truncation, clones the aggregator
+  at the cut point and calls `finalize()` on the clone; returns `ReadOutcome<A::Output>`.
+- `aggregate_bounded_impl` in `src/cross_stream.rs` — budget loop with at-least-one guarantee
+  for byte budget (first event always folds even if its payload alone exceeds the ceiling).
+  Result-count budget fires after `N` events have been folded and more remain.
+- `tests/aggregate_bounded.rs` — 11 tests: complete/empty/truncated paths, at-least-one byte
+  guarantee, partial-finalize correctness (Summator), store-default + per-call override,
+  event_type_filter respected, count-beats-bytes priority, `cursor: None` on all Truncated results.
+
+### Changed
+
+- `ReadOutcome::Truncated.cursor` widened from `TruncationCursor` to `Option<TruncationCursor>`.
+  Pageable reads (range, correlation, causation walk) continue to return `Some(cursor)`.
+  `aggregate_bounded` returns `cursor: None` — fold-resume requires re-feeding partial state
+  into a new aggregator instance, which `Aggregate` does not yet support. Deferred to v1.2.x.
+  All in-tree call sites updated (construction wrapped in `Some`; resume loops drop the extra
+  `Some(...)` wrapper since the extracted cursor is already `Option`).
+
+### No resume cursor in v1.1
+
+Aggregate resume requires a `restore(partial_output) -> Self` method or equivalent injection
+point on the `Aggregate` trait. Not introduced here. Callers needing resume can re-run with a
+`from_timestamp_us` offset, or use the unbounded `aggregate` if result-size bounding is not needed.
+
+### Budget resolution
+
+Per-call arg → `OpenOptions::default_max_results` / `default_max_bytes` → unbounded.
+`default_max_results` is reused as the events-scanned default; aggregate truncation is on
+input size (events read), not output size.
+
+---
+
 ## v1.1.3 — 2026-06-21 — Bounded Resource API: walk_causation_bounded with sampling modes
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.1.3.md`

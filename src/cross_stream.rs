@@ -135,7 +135,7 @@ pub(crate) fn read_by_correlation_bounded_impl(
             } else {
                 TruncationReason::ByteSize
             };
-            return Ok(ReadOutcome::Truncated { data: events, cursor, reason });
+            return Ok(ReadOutcome::Truncated { data: events, cursor: Some(cursor), reason });
         }
 
         byte_count += event_bytes;
@@ -429,7 +429,7 @@ pub(crate) fn walk_causation_bounded_impl(
                 direction: dir_byte,
                 depth_consumed: (depth - 1) as u32,
             })?;
-            return Ok(ReadOutcome::Truncated { data: results, cursor, reason });
+            return Ok(ReadOutcome::Truncated { data: results, cursor: Some(cursor), reason });
         }
 
         // Yield this level.
@@ -547,4 +547,124 @@ pub(crate) fn aggregate_impl<A: Aggregate>(
         }
     }
     Ok(agg.finalize())
+}
+
+/// Bounded variant of `aggregate_impl`.
+///
+/// Folds events until `max_events` have been scanned or `max_bytes` of payload have
+/// accumulated. On truncation, clones the aggregator at the cut point and calls
+/// `finalize()` on the clone to produce the `Truncated` result.
+///
+/// No resume cursor is produced (`cursor: None`). Fold-resume requires re-feeding
+/// partial state into a new aggregator instance — not yet supported by `Aggregate`.
+/// Deferred to v1.2.x.
+pub(crate) fn aggregate_bounded_impl<A: Aggregate + Clone>(
+    conn: &Connection,
+    query: AggregateQuery,
+    mut agg: A,
+    upcasters: &UpcasterRegistry,
+    max_events: Option<usize>,
+    max_bytes: Option<usize>,
+) -> Result<ReadOutcome<A::Output>, Error> {
+    let mut clauses: Vec<String> = vec![
+        "stream_id GLOB ?".to_string(),
+        "branch = ?".to_string(),
+    ];
+    let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
+        Box::new(query.stream_pattern.clone()),
+        Box::new(query.branch.clone()),
+    ];
+
+    if let Some(ref et) = query.event_type_filter {
+        clauses.push("event_type = ?".to_string());
+        params.push(Box::new(et.clone()));
+    }
+    if let Some(from_ts) = query.from_timestamp_us {
+        clauses.push("timestamp_us >= ?".to_string());
+        params.push(Box::new(from_ts));
+    }
+    if let Some(to_ts) = query.to_timestamp_us {
+        clauses.push("timestamp_us <= ?".to_string());
+        params.push(Box::new(to_ts));
+    }
+    if let Some(ref filter) = query.indexed_tags_filter {
+        if let serde_json::Value::Object(map) = filter {
+            for (key, value) in map {
+                if !is_safe_tag_key(key) {
+                    return Err(Error::Internal(format!(
+                        "indexed_tags_filter key {key:?} must contain only letters, digits, and underscores"
+                    )));
+                }
+                let path = format!("$.{key}");
+                match value {
+                    serde_json::Value::Null => {
+                        clauses.push(format!("json_extract(indexed_tags, '{path}') IS NULL"));
+                    }
+                    serde_json::Value::Bool(b) => {
+                        clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
+                        params.push(Box::new(if *b { 1i64 } else { 0i64 }));
+                    }
+                    serde_json::Value::Number(n) => {
+                        if let Some(i) = n.as_i64() {
+                            clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
+                            params.push(Box::new(i));
+                        } else if let Some(f) = n.as_f64() {
+                            clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
+                            params.push(Box::new(f));
+                        }
+                    }
+                    serde_json::Value::String(s) => {
+                        clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
+                        params.push(Box::new(s.clone()));
+                    }
+                    _ => {
+                        return Err(Error::Internal(format!(
+                            "indexed_tags_filter value for key {key:?} must be a JSON primitive (string, bool, number, or null)"
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
+    let sql = format!(
+        "SELECT {SELECT_COLS} FROM events WHERE {} ORDER BY timestamp_us ASC",
+        clauses.join(" AND ")
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(
+        rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())),
+        row_to_event,
+    )?;
+
+    let mut events_scanned: usize = 0;
+    let mut byte_count: usize = 0;
+
+    for row in rows {
+        let event = apply_upcaster(upcasters, row?)?;
+        if crate::glob::matches(&query.stream_pattern, &event.stream_id) {
+            let event_bytes = event.payload.len();
+
+            let exceed_count = max_events.map_or(false, |n| events_scanned >= n);
+            // at-least-one: byte budget only fires after at least one event has been folded
+            let exceed_bytes =
+                max_bytes.map_or(false, |b| events_scanned > 0 && byte_count + event_bytes > b);
+
+            if exceed_count || exceed_bytes {
+                let reason = if exceed_count {
+                    TruncationReason::ResultCount
+                } else {
+                    TruncationReason::ByteSize
+                };
+                let data = agg.clone().finalize();
+                return Ok(ReadOutcome::Truncated { data, cursor: None, reason });
+            }
+
+            agg.fold(&event);
+            events_scanned += 1;
+            byte_count += event_bytes;
+        }
+    }
+
+    Ok(ReadOutcome::Complete(agg.finalize()))
 }

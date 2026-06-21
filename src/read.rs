@@ -185,7 +185,7 @@ pub(crate) fn read_range_bounded_impl(
             } else {
                 TruncationReason::ByteSize
             };
-            return Ok(ReadOutcome::Truncated { data: events, cursor, reason });
+            return Ok(ReadOutcome::Truncated { data: events, cursor: Some(cursor), reason });
         }
 
         byte_count += event_bytes;

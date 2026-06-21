@@ -263,7 +263,7 @@ fn causation_bounded_resume_full_pagination() {
             }
             ReadOutcome::Truncated { data, cursor, .. } => {
                 all_ids.extend(data.iter().map(|e| *e.id.as_bytes()));
-                cursor_opt = Some(cursor);
+                cursor_opt = cursor;
             }
         }
     }
@@ -423,7 +423,7 @@ fn causation_bounded_wrong_cursor_type_returns_error() {
         SamplingMode::Exhaustive,
         None,
         None,
-        Some(range_cursor),
+        range_cursor,
     );
     assert!(result.is_err(), "mismatched cursor type must return Err");
 }
@@ -456,7 +456,7 @@ fn causation_bounded_cursor_direction_mismatch_returns_error() {
         SamplingMode::Exhaustive,
         None,
         None,
-        Some(fwd_cursor),
+        fwd_cursor,
     );
     assert!(result.is_err(), "direction mismatch must return Err");
 }

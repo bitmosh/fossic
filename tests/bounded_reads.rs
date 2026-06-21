@@ -126,7 +126,7 @@ fn range_bounded_resume_continues_from_cursor() {
 
     // Page 2: resume
     let page2 = match store
-        .read_range_bounded(range_q(), Some(3), None, Some(cursor))
+        .read_range_bounded(range_q(), Some(3), None, cursor)
         .unwrap()
     {
         ReadOutcome::Complete(events) => events,
@@ -154,7 +154,7 @@ fn range_bounded_resume_full_pagination() {
             }
             ReadOutcome::Truncated { data, cursor, .. } => {
                 all_versions.extend(data.iter().map(|e| e.version));
-                cursor_opt = Some(cursor);
+                cursor_opt = cursor;
             }
         }
     }
@@ -268,7 +268,7 @@ fn correlation_bounded_resume_continues_from_cursor() {
             }
             ReadOutcome::Truncated { data, cursor, .. } => {
                 all_ids.extend(data.iter().map(|e| *e.id.as_bytes()));
-                cursor_opt = Some(cursor);
+                cursor_opt = cursor;
             }
         }
     }
@@ -331,6 +331,6 @@ fn correlation_bounded_wrong_cursor_type_returns_error() {
         ReadOutcome::Truncated { cursor, .. } => cursor,
         ReadOutcome::Complete(_) => panic!("need truncated to get a cursor"),
     };
-    let result = store.read_by_correlation_bounded(root, Some(10), None, Some(range_cursor));
+    let result = store.read_by_correlation_bounded(root, Some(10), None, range_cursor);
     assert!(result.is_err(), "mismatched cursor type should return Err");
 }

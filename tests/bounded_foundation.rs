@@ -67,14 +67,14 @@ fn read_outcome_truncated_carries_cursor_and_reason() {
     let cursor = TruncationCursor::from_bytes(vec![0xDE, 0xAD]);
     let outcome: ReadOutcome<Vec<u32>> = ReadOutcome::Truncated {
         data: vec![1],
-        cursor,
+        cursor: Some(cursor),
         reason: TruncationReason::ResultCount,
     };
     match outcome {
         ReadOutcome::Complete(_) => panic!("expected Truncated"),
         ReadOutcome::Truncated { data, cursor, reason } => {
             assert_eq!(data, vec![1]);
-            assert_eq!(cursor.as_bytes(), &[0xDE, 0xAD]);
+            assert_eq!(cursor.unwrap().as_bytes(), &[0xDE, 0xAD]);
             assert_eq!(reason, TruncationReason::ResultCount);
         }
     }
