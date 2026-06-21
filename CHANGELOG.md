@@ -5,13 +5,30 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
-## v1.4.0 — TBD — Phase 8: Hub Coordinator Preparation
+## v1.4.0 — 2026-06-21 — Phase 8: Hub Coordinator Preparation
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.4.0.md`
 
 ### Added
 
-- _TBD — event-sourced project discovery primitives (`ProjectRegistered`, `RelayHeartbeat`)_
+- `Store::emit_project_registered(source_store, local_store_path, subscribe_pattern,
+  project_description)` — emits a `ProjectRegistered` event to `_fossic/system`.
+  Call on relay agent startup and on first hub-direct write to announce this
+  project's local store and relay pattern.
+- `Store::emit_relay_heartbeat(source_store, last_event_version, queue_lag,
+  uptime_us)` — emits a `RelayHeartbeat` event to `_fossic/system`. Call from a
+  heartbeat thread at the configured interval.
+- `src/registry.rs` — substrate-side emit-only helpers for both event types.
+  Receives a `&mut SystemStreamWriter`; no `Store`/`StoreInner` dependency.
+- `StoreInner::project_registry_writer` — lazy `Mutex<Option<SystemStreamWriter>>`
+  for the registry writer; same pattern as `reducer_system_writer`. Dedicated
+  connection so relay threads never contend with dispatcher or reducer writers.
+- Both system events carry `indexed_tags = {"source_store": "<name>"}` for future
+  coordinator filtering.
+- **Python (`fossic-py`):** `Store.emit_project_registered` and
+  `Store.emit_relay_heartbeat` bindings. `RelayConfig.heartbeat_interval_s`
+  (default 5.0 s) and `RelayConfig.project_description`. `RelayAgent` spawns a
+  daemon heartbeat thread and calls `emit_project_registered` on startup.
 
 ---
 

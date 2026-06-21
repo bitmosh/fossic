@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional
@@ -138,6 +139,12 @@ class RelayConfig:
     """If non-empty, only event_types in this set are relayed.
     Empty means relay all event_types matched by subscribe_pattern."""
 
+    heartbeat_interval_s: float = 5.0
+    """Interval in seconds between RelayHeartbeat events emitted to local store."""
+
+    project_description: str = ""
+    """Human-readable description of the project; included in ProjectRegistered."""
+
     batch_size: int = 50
     """Hint for batched-append implementations; not enforced by RelayAgent."""
 
@@ -172,6 +179,8 @@ class RelayAgent:
         self.local_store: Optional[Store] = None
         self.hub_store: Optional[Store] = None
         self.logger = logging.getLogger(f"relay.{config.source_prefix}")
+        self._last_event_version: int = -1
+        self._start_us: int = 0
 
     def _hub_stream_id(self, local_stream_id: str) -> str:
         return _hub_stream_id(self.config.source_prefix, local_stream_id)
@@ -208,37 +217,70 @@ class RelayAgent:
             hub_stream_id=hub_stream_id,
             payload=event.payload(),
         )
+        self._last_event_version = event.version
         return True
+
+    def _heartbeat_loop(self, stop_event: threading.Event) -> None:
+        while not stop_event.wait(timeout=self.config.heartbeat_interval_s):
+            if self.local_store is not None:
+                try:
+                    uptime_us = int(time.time() * 1_000_000) - self._start_us
+                    self.local_store.emit_relay_heartbeat(
+                        self.config.source_prefix,
+                        self._last_event_version,
+                        0,
+                        uptime_us,
+                    )
+                except Exception:
+                    self.logger.debug("heartbeat emit failed", exc_info=True)
 
     def run(self) -> None:
         """Main relay loop. Runs until an unrecoverable error; restarts on StorageError."""
         from fossic import Store  # local import avoids circular import at module level
-        while True:
-            try:
-                self.local_store = Store.open(self.config.local_store_path)
-                self.hub_store = Store.open(self.config.hub_store_path)
-                self.logger.info(
-                    "relay started",
-                    extra={
-                        "source": self.config.source_prefix,
-                        "pattern": self.config.subscribe_pattern,
-                    },
-                )
-                with self.local_store.subscribe(self.config.subscribe_pattern) as sub:
-                    for event in sub:
-                        self._relay_with_retry(event)
-            except StorageError as exc:
-                self.logger.warning(
-                    "store error — reconnecting",
-                    extra={
-                        "error": str(exc),
-                        "delay_ms": self.config.reconnect_delay_ms,
-                    },
-                )
-                time.sleep(self.config.reconnect_delay_ms / 1000)
-            except Exception:
-                self.logger.error("relay fatal error", exc_info=True)
-                raise
+        self._start_us = int(time.time() * 1_000_000)
+        stop_hb = threading.Event()
+        hb_thread = threading.Thread(
+            target=self._heartbeat_loop,
+            args=(stop_hb,),
+            daemon=True,
+            name=f"relay-hb.{self.config.source_prefix}",
+        )
+        hb_thread.start()
+        try:
+            while True:
+                try:
+                    self.local_store = Store.open(self.config.local_store_path)
+                    self.hub_store = Store.open(self.config.hub_store_path)
+                    self.local_store.emit_project_registered(
+                        self.config.source_prefix,
+                        self.config.local_store_path,
+                        self.config.subscribe_pattern,
+                        self.config.project_description,
+                    )
+                    self.logger.info(
+                        "relay started",
+                        extra={
+                            "source": self.config.source_prefix,
+                            "pattern": self.config.subscribe_pattern,
+                        },
+                    )
+                    with self.local_store.subscribe(self.config.subscribe_pattern) as sub:
+                        for event in sub:
+                            self._relay_with_retry(event)
+                except StorageError as exc:
+                    self.logger.warning(
+                        "store error — reconnecting",
+                        extra={
+                            "error": str(exc),
+                            "delay_ms": self.config.reconnect_delay_ms,
+                        },
+                    )
+                    time.sleep(self.config.reconnect_delay_ms / 1000)
+                except Exception:
+                    self.logger.error("relay fatal error", exc_info=True)
+                    raise
+        finally:
+            stop_hb.set()
 
     def _relay_with_retry(self, event: StoredEvent) -> None:
         for attempt in range(self.config.max_retry_attempts):

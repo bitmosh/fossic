@@ -130,3 +130,7 @@ path = "tests/streaming_iters.rs"
 [[test]]
 name = "executor"
 path = "tests/executor.rs"
+
+[[test]]
+name = "registry"
+path = "tests/registry.rs"

@@ -675,6 +675,35 @@ impl PyStore {
     fn gc_orphaned_snapshots(&self) -> PyResult<usize> {
         self.inner.gc_orphaned_snapshots().map_err(to_py_err)
     }
+
+    fn emit_project_registered(
+        &self,
+        source_store: &str,
+        local_store_path: &str,
+        subscribe_pattern: &str,
+        project_description: &str,
+    ) -> PyResult<()> {
+        self.inner
+            .emit_project_registered(
+                source_store,
+                local_store_path,
+                subscribe_pattern,
+                project_description,
+            )
+            .map_err(to_py_err)
+    }
+
+    fn emit_relay_heartbeat(
+        &self,
+        source_store: &str,
+        last_event_version: i64,
+        queue_lag: u64,
+        uptime_us: i64,
+    ) -> PyResult<()> {
+        self.inner
+            .emit_relay_heartbeat(source_store, last_event_version, queue_lag, uptime_us)
+            .map_err(to_py_err)
+    }
 }
 
 // ── Python iterator wrappers ──────────────────────────────────────────────────

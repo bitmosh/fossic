@@ -5,6 +5,7 @@ pub mod subscriptions;
 mod append;
 mod branches;
 mod executor;
+mod registry;
 mod cross_stream;
 mod cursors;
 mod deletion;

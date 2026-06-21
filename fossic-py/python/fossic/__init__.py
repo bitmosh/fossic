@@ -466,6 +466,28 @@ class Store:
     def gc_orphaned_snapshots(self) -> int:
         return self._inner.gc_orphaned_snapshots()  # type: ignore[return-value]
 
+    def emit_project_registered(
+        self,
+        source_store: str,
+        local_store_path: str,
+        subscribe_pattern: str,
+        project_description: str = "",
+    ) -> None:
+        self._inner.emit_project_registered(  # type: ignore[attr-defined]
+            source_store, local_store_path, subscribe_pattern, project_description
+        )
+
+    def emit_relay_heartbeat(
+        self,
+        source_store: str,
+        last_event_version: int,
+        queue_lag: int,
+        uptime_us: int,
+    ) -> None:
+        self._inner.emit_relay_heartbeat(  # type: ignore[attr-defined]
+            source_store, last_event_version, queue_lag, uptime_us
+        )
+
     # ── Subscriptions ─────────────────────────────────────────────────────────
 
     def subscribe(

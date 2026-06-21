@@ -154,6 +154,11 @@ struct StoreInner {
     state_monitors: parking_lot::Mutex<HashMap<(String, String), StateMonitor>>,
     // ── PHASE 7 FIELDS ───────────────────────────────────────────────────────
     quiescence: Arc<crate::executor::QuiescenceMonitor>,
+    // ── PHASE 8 FIELDS ───────────────────────────────────────────────────────
+    // Lazy-initialized writer for project discovery events (ProjectRegistered,
+    // RelayHeartbeat). Dedicated connection so relay threads never contend with
+    // the dispatcher or reducer writers.
+    project_registry_writer: parking_lot::Mutex<Option<SystemStreamWriter>>,
     background_executor: parking_lot::Mutex<Option<crate::executor::BackgroundExecutor>>,
     // Wall-clock time at store open, in microseconds since Unix epoch.
     // Used as last_snapshot_us fallback when no snapshot has been taken yet.
@@ -293,6 +298,7 @@ impl Store {
             background_executor: parking_lot::Mutex::new(None),
             store_open_us,
             last_snapshot_us: parking_lot::RwLock::new(HashMap::new()),
+            project_registry_writer: parking_lot::Mutex::new(None),
         });
 
         // Spawn executor after Arc creation so we can downgrade to Weak.
@@ -1460,6 +1466,63 @@ impl Store {
             state_schema_version,
             state_bytes,
         )
+    }
+
+    // ── Phase 8: Project Registry ─────────────────────────────────────────────
+
+    /// Emit a `ProjectRegistered` event to `_fossic/system`.
+    ///
+    /// Call on relay agent startup and on first hub-direct write to announce
+    /// this project's local store and relay pattern. Best-effort: errors are
+    /// logged internally and the call always returns `Ok(())`.
+    pub fn emit_project_registered(
+        &self,
+        source_store: &str,
+        local_store_path: &str,
+        subscribe_pattern: &str,
+        project_description: &str,
+    ) -> Result<(), Error> {
+        let mut guard = self.inner.project_registry_writer.lock();
+        if guard.is_none() {
+            *guard = SystemStreamWriter::new(&self.inner.path);
+        }
+        if let Some(writer) = guard.as_mut() {
+            crate::registry::emit_project_registered(
+                writer,
+                source_store,
+                local_store_path,
+                subscribe_pattern,
+                project_description,
+            );
+        }
+        Ok(())
+    }
+
+    /// Emit a `RelayHeartbeat` event to `_fossic/system`.
+    ///
+    /// Call from the relay heartbeat thread at the configured interval.
+    /// Best-effort: errors are logged internally and the call always returns `Ok(())`.
+    pub fn emit_relay_heartbeat(
+        &self,
+        source_store: &str,
+        last_event_version: i64,
+        queue_lag: u64,
+        uptime_us: i64,
+    ) -> Result<(), Error> {
+        let mut guard = self.inner.project_registry_writer.lock();
+        if guard.is_none() {
+            *guard = SystemStreamWriter::new(&self.inner.path);
+        }
+        if let Some(writer) = guard.as_mut() {
+            crate::registry::emit_relay_heartbeat(
+                writer,
+                source_store,
+                last_event_version,
+                queue_lag,
+                uptime_us,
+            );
+        }
+        Ok(())
     }
 
     // ── Similarity ────────────────────────────────────────────────────────────
