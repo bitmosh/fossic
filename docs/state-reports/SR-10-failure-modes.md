@@ -2,14 +2,14 @@
 
 **Version:** v1.8.0 (`Cargo.toml` version field)  
 **Date:** 2026-06-21  
-**Branch:** track2-p678  
+**Branch:** main  
 **Scope:** Pure reconnaissance — no code changes. All citations verified against on-disk source.
 
 ---
 
 ## PART A — Verified Findings
 
-Twelve failure modes confirmed against live source. Each entry lists the **property** (what the substrate actually does), **why it bites** (the observable consequence), and **evidence** (file:line of the load-bearing code).
+Seventeen failure modes confirmed against live source. Each entry lists the **property** (what the substrate actually does), **why it bites** (the observable consequence), and **evidence** (file:line of the load-bearing code).
 
 ---
 
@@ -237,6 +237,86 @@ src/system_stream.rs:62–65   (Err(_) => return)
 **Practical frequency.** Items 2 and 3 (`reducer_system_writer`, `project_registry_writer`) are protected by their own `parking_lot::Mutex`, so only one caller at a time holds each. The dispatcher thread holds item 1 exclusively. The background executor (item 4) is only active at shutdown. True concurrent contention between writers is rare under normal operation but structurally possible and not guarded beyond `busy_timeout`.
 
 **Version assignment race.** The `MAX(version) + 1` query inside the transaction is safe against concurrent writers at the SQLite level (IMMEDIATE locks the file for the duration), but only if `begin immediate` succeeds. If it does not, the event is dropped with no version conflict — correctness is preserved at the cost of observability.
+
+---
+
+### A-13. Disk-full during append — SQLITE_FULL propagates as Error::Sqlite; version slot not consumed
+
+**Property.** `append_impl` uses `PRAGMA busy_timeout = 30000` on the write connection and opens an `IMMEDIATE` transaction (`src/append.rs:65`). The `INSERT OR IGNORE` executes at lines 80–99; `tx.commit()` at line 101. On disk full, SQLite returns `SQLITE_FULL`. rusqlite maps this to `rusqlite::Error::SqliteFailure(...)`. fossic maps via `#[from] rusqlite::Error` at `src/error.rs:70` → `Error::Sqlite(...)`.
+
+**Consequence — clean path.** The `?` on `tx.commit()?` returns `Err(...)` immediately. rusqlite drops the transaction without committing, rolling it back. The `MAX(version)+1` computation was inside the same `IMMEDIATE` transaction — the version slot is not consumed. `dispatch_tx.send(s)` at `src/store.rs:397–401` is only reached if the lock block returns `Ok(...)`; on error it is never called. The caller receives `Error::Sqlite(...)` with no partial state.
+
+**Consequence — system event silent drop.** `SystemStreamWriter::emit()` has `Err(_) => return` at `src/system_stream.rs:62–65`. Any system-stream write attempted while the filesystem is full (e.g., a concurrent `SubscriptionDegraded` or `ReducerStateLarge`) is silently discarded. See A-12 for the contention model; disk-full adds a second silent-drop trigger to the same path.
+
+**Observation surface.** The caller receives `Error::Sqlite(rusqlite::Error::SqliteFailure(...))`. No fossic-level structured variant (e.g., `Error::DiskFull`) exists. Callers must inspect `rusqlite::ErrorCode` to distinguish `SQLITE_FULL` from `SQLITE_BUSY`, `SQLITE_LOCKED`, or other SQLite errors.
+
+---
+
+### A-14. synchronous=NORMAL — committed events may not survive OS crash
+
+**Property.** `Store::open` executes `PRAGMA synchronous = NORMAL` at `src/store.rs:232`. Under NORMAL mode, SQLite writes WAL frames to the OS file-system buffer and returns from `commit()` without calling `fsync`. The kernel may flush the buffer to disk at any later time.
+
+**Consequence.** If the OS crashes (kernel panic, power loss) after `commit()` returns but before the kernel flushes the WAL frame to disk, the frame is absent from the WAL file on the next open. SQLite WAL recovery (`src/store.rs:229`'s `Connection::open` call triggers automatic recovery internally) reads WAL frames and validates per-frame checksums. Frames absent or partially written have invalid checksums and are skipped. The database reverts to the last fully-synced state — potentially losing one or more commits that the fossic API already acknowledged to callers.
+
+`Store::open` does not call `PRAGMA integrity_check`, `PRAGMA quick_check`, or `PRAGMA wal_checkpoint` (`src/store.rs:192–273`). No open-time validation occurs; the store opens and serves requests on the recovered state without signalling that events were lost.
+
+**WalWatcher interaction.** `WalWatcher` initializes `last_data_version` from the post-recovery `PRAGMA data_version` at `src/wal_watch.rs:97–99`. It correctly starts from the recovered baseline and will not replay events that did not survive the crash.
+
+**Why it bites.** A caller that receives `Ok(event_id)` from `store.append()` has a fossic-level success guarantee but not a durability guarantee against OS crash. The fossic README and `OpenOptions` do not document the synchronous mode or its trade-offs.
+
+**Configuration gap.** `PRAGMA synchronous = FULL` would add a WAL fsync before returning from commit, providing crash durability at higher write latency. `OpenOptions` has no `synchronous_mode` field; the value is hardcoded.
+
+---
+
+### A-15. Two processes on same db_path — no advisory lock; write contention up to 30s; WalWatcher cross-fires correctly
+
+**Property.** fossic has no advisory file lock, PID file, or inter-process coordination. Multiple processes can open the same db path simultaneously. `PRAGMA busy_timeout = 30000` at `src/store.rs:233` is the only contention guard.
+
+**Write contention.** `append_impl` opens a `BEGIN IMMEDIATE` transaction. SQLite serializes `IMMEDIATE` transactions via a WAL write lock. If process A holds the write lock, process B's `BEGIN IMMEDIATE` blocks on the SQLite retry loop for up to 30 seconds, then returns `SQLITE_BUSY` → `Error::Sqlite(...)` to the caller. Data correctness is preserved; no corruption occurs. Write latency from B's perspective is unbounded up to 30s under sustained concurrent writes from A.
+
+**WalWatcher cross-fire.** Each process starts a `WalWatcher` on the same db parent directory (`src/wal_watch.rs:44–50`, `src/store.rs:248–256`). When process A appends an event, both WalWatchers detect the WAL modification via `notify`. Both check `PRAGMA data_version` to confirm new committed data. Both dispatch the new events to their respective in-process subscriber registries. This is the **intended design** for cross-process subscription fan-out: process B's subscribers see events written by process A without polling. The mechanism is correct and tested in `tests/wal_watch.rs`.
+
+**System stream contention under two processes.** Each process holds up to 4 `SystemStreamWriter` instances (A-12). Under concurrent activity, up to 8 concurrent `BEGIN IMMEDIATE` transactions compete for `_fossic/system`. The 30s `busy_timeout` remains the only guard; silent drop on timeout applies (A-12, `src/system_stream.rs:62–65`).
+
+**Observation gap.** No multi-process integration test exercises two writers concurrently. No `OpenOptions` flag communicates multi-process intent to callers. The supported pattern (one writer + N reader-subscribers across processes) is undocumented.
+
+---
+
+### A-16. Causation cycles — structurally infeasible via CCE; walk protection redundant but correct
+
+**Property.** The `causation_id` column has no FK or uniqueness constraint (`src/schema.rs:13`: `causation_id BLOB`, index-only). Any 32-byte blob can be stored as `causation_id` — including one that points to a non-existent event or to an event not yet appended.
+
+**Cycle feasibility.** A strict causation cycle requires events A and B where A.causation_id = B.id AND B.causation_id = A.id. Since event IDs are BLAKE3 hashes of `(event_type, type_version, causation_id, payload)` (`src/cce.rs:133–145` via `derive_event_id`, called at `src/append.rs:54–59`), this requires:
+
+```
+A.id = BLAKE3(type_a, tv_a, B.id, payload_a)
+B.id = BLAKE3(type_b, tv_b, A.id, payload_b)
+```
+
+Finding a fixed-point pair for BLAKE3 is computationally infeasible. Self-referential cycles (A.causation_id = A.id) require a BLAKE3 fixed-point; equally infeasible. Cycles through the fossic API are structurally impossible.
+
+**Walk protection (defense-in-depth).** Both walk paths guard against cycles that could arrive via raw SQL writes or corrupted imports:
+
+- `walk_causation_impl`: `WITH RECURSIVE ... UNION` at `src/cross_stream.rs:188–200`. SQLite UNION (not UNION ALL) deduplicates by `id` — an id already in the result set terminates that recursion branch.
+- `walk_causation_bounded_impl`: Rust-level `seen: HashSet<[u8; 32]>` at `src/cross_stream.rs:383–394`. Re-visited ids are filtered before being added to the next BFS frontier.
+
+Both mechanisms correctly handle any cycle injected outside the fossic API. `max_depth` provides an additional depth ceiling but is not the primary cycle guard.
+
+**Orphan causation_ids.** `append_impl` does not validate that `causation_id` points to an existing event (no FK constraint). An append with a causation_id that references a non-existent event succeeds silently. `walk_causation` from that event's id returns no ancestors; `walk_causation_bounded` starting from the orphan root returns only the child. This is an undetected integrity gap, not a cycle risk.
+
+---
+
+### A-17. Cargo workspace — thiserror 1.x and 2.x compiled concurrently; three schemars versions in lock
+
+**Property.** The workspace `Cargo.lock` contains two versions of `thiserror` (`1.0.69` and `2.0.18`) and two versions of `thiserror-impl` (`1.0.69` and `2.0.18`). fossic and fossic-similarity-hnsw depend on thiserror 2 directly. `napi 2` in fossic-node pulls thiserror 1.x as a transitive dependency. Additionally, `schemars` appears in three versions (`0.8.22`, `0.9.0`, `1.2.1`), pulled by napi's type-generation machinery and tauri's plugin ecosystem.
+
+**Consequence — immediate.** None: the workspace builds successfully. Rust allows multiple semver-incompatible versions of a crate when their types do not cross crate boundaries. fossic's `Error` enum (derived with thiserror 2) flows to callers only as `std::error::Error` or direct enum match — not as a type whose trait impl was generated by a specific thiserror major version. schemars types are consumed internally by napi and tauri and do not appear in fossic's public API.
+
+**Consequence — latent.** If a future change adds a new `#[from]` conversion to fossic's `Error` enum that references a type from a crate compiled with a different thiserror major version, the generated `From` or `Display` impl may fail to compile. The failure mode is obscure (version mismatch in generated code, not a user error). The current tree is not affected.
+
+**Maintenance burden.** Four versions of `hashbrown`, three of `windows-sys`, and two each of `syn`, `indexmap`, `bitflags`, and `base64` appear in the lock file. Most are safe (internal impl details of different ecosystems). The thiserror split is the only case where a shared crate used in fossic's public-facing error type exists at two major versions in the same workspace build graph.
+
+**Evidence.** `Cargo.lock`: `thiserror 1.0.69` and `2.0.18`; `schemars 0.8.22`, `0.9.0`, `1.2.1`. Source of thiserror 1.x: `napi 2` in `fossic-node/Cargo.toml`.
 
 ---
 
