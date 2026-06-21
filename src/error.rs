@@ -87,6 +87,14 @@ pub enum Error {
     #[error("read budget exceeded: {budget:?} limit is {limit}")]
     ReadBudgetExceeded { budget: BudgetKind, limit: usize },
 
+    #[error("reducer panicked: stream={stream_id} reducer={reducer_name} event={event_id_hex}: {panic_message}")]
+    ReducerPanicked {
+        stream_id: String,
+        reducer_name: String,
+        event_id_hex: String,
+        panic_message: String,
+    },
+
     #[error("internal error: {0}")]
     Internal(String),
 

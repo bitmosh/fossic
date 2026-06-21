@@ -1,4 +1,4 @@
-use fossic::{Append, Error, OpenOptions, Reducer, Store};
+use fossic::{Append, Error, EventId, OpenOptions, Reducer, Store};
 use serde::{Deserialize, Serialize};
 
 fn open_tmp() -> (Store, tempfile::TempDir) {
@@ -85,6 +85,17 @@ fn append_add(store: &Store, stream_id: &str, value: i64) {
             ..Default::default()
         })
         .unwrap();
+}
+
+fn append_add_ret(store: &Store, stream_id: &str, value: i64) -> EventId {
+    store
+        .append(Append {
+            stream_id: stream_id.to_string(),
+            event_type: "Add".to_string(),
+            payload: serde_json::json!({"value": value}),
+            ..Default::default()
+        })
+        .unwrap()
 }
 
 // ── register_reducer ─────────────────────────────────────────────────────────
@@ -302,6 +313,82 @@ fn read_state_after_snapshot_uses_snapshot() {
     }
 
     let state: SumState = store.read_state("test/s", "main").unwrap();
+    assert_eq!(state.count, 5);
+    assert_eq!(state.total, 15);
+}
+
+// ── Panic isolation tests (SR-10 A-11) ────────────────────────────────────────
+
+/// A reducer that panics on every apply call.
+struct PanickingReducer;
+
+impl Reducer for PanickingReducer {
+    type State = SumState;
+    type Event = AddEvent;
+
+    const NAME: &'static str = "panicking_reducer";
+    const VERSION: u32 = 1;
+    const STATE_SCHEMA_VERSION: u32 = 1;
+
+    fn initial_state(&self) -> Self::State {
+        SumState::default()
+    }
+
+    fn apply(&self, _state: Self::State, _event: &Self::Event) -> Self::State {
+        panic!("deliberate test panic — SR-10 A-11")
+    }
+}
+
+#[test]
+fn panicking_reducer_returns_error_not_unwind() {
+    let (store, _dir) = open_tmp();
+    store.declare_stream("panic/stream", "test", None).unwrap();
+    store.register_reducer("panic/stream", PanickingReducer).unwrap();
+
+    append_add(&store, "panic/stream", 42);
+
+    let result: Result<SumState, Error> = store.read_state("panic/stream", "main");
+    match result {
+        Err(Error::ReducerPanicked { reducer_name, panic_message, .. }) => {
+            assert_eq!(reducer_name, "panicking_reducer");
+            assert!(
+                panic_message.contains("deliberate test panic"),
+                "panic_message should contain the original message, got: {panic_message}",
+            );
+        }
+        other => panic!("expected ReducerPanicked, got: {other:?}"),
+    }
+}
+
+#[test]
+fn panicking_reducer_error_includes_event_id() {
+    let (store, _dir) = open_tmp();
+    store.declare_stream("panic/eventid", "test", None).unwrap();
+    store.register_reducer("panic/eventid", PanickingReducer).unwrap();
+
+    let event_id = append_add_ret(&store, "panic/eventid", 1);
+
+    let result: Result<SumState, Error> = store.read_state("panic/eventid", "main");
+    match result {
+        Err(Error::ReducerPanicked { event_id_hex, .. }) => {
+            let expected_hex: String = event_id.as_bytes().iter().map(|b| format!("{b:02x}")).collect();
+            assert_eq!(event_id_hex, expected_hex, "event_id_hex must match the appended event's id");
+        }
+        other => panic!("expected ReducerPanicked, got: {other:?}"),
+    }
+}
+
+#[test]
+fn non_panicking_reducer_unchanged() {
+    let (store, _dir) = open_tmp();
+    store.declare_stream("sum/stable", "test", None).unwrap();
+    store.register_reducer("sum/stable", SumReducer).unwrap();
+
+    for v in 1..=5i64 {
+        append_add(&store, "sum/stable", v);
+    }
+
+    let state: SumState = store.read_state("sum/stable", "main").unwrap();
     assert_eq!(state.count, 5);
     assert_eq!(state.total, 15);
 }
