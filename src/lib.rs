@@ -15,6 +15,7 @@ mod similarity;
 mod snapshots;
 mod store;
 mod stream;
+mod system_stream;
 mod transforms;
 mod types;
 mod upcasters;
@@ -30,7 +31,7 @@ pub use subscriptions::{SubscribeQuery, SubscriptionHandle, SubscriptionHandler,
 pub use transforms::PayloadTransform;
 pub use types::{
     Append, BranchInfo, BudgetKind, CheckpointMode, CreateBranch, EncryptionMode, EventId,
-    FirstOpenPolicy, OpenOptions, ReadOutcome, ReadQuery, SamplingMode, SnapshotInfo, StoredEvent,
-    StreamInfo, TruncationCursor, TruncationReason,
+    FirstOpenPolicy, OpenOptions, ReadOutcome, ReadQuery, SamplingMode, SnapshotInfo,
+    SnapshotPolicy, StoredEvent, StreamInfo, TruncationCursor, TruncationReason,
 };
 pub use upcasters::Upcaster;

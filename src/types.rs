@@ -303,7 +303,8 @@ pub struct SnapshotInfo {
     pub created_at: i64,
 }
 
-// ── Bounded read types ────────────────────────────────────────────────────────
+// ── PHASE 1 TYPES ─────────────────────────────────────────────────────────────
+// All Phase 1 (Bounded Resource API) types live below this marker.
 
 /// Which budget limit was hit during a bounded read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -396,4 +397,48 @@ pub enum SamplingMode {
     BreadthFirst { max_per_level: usize },
     /// Aim for approximately `target_count` events, adjusting depth cutoff dynamically.
     Adaptive { target_count: usize },
+}
+
+// ── PHASE 6+7+8 TYPES ─────────────────────────────────────────────────────────
+// All Phase 6, 7, 8 types insert below this marker, above the closing of the file.
+
+/// Policy for when fossic automatically takes a snapshot of a reducer's state.
+///
+/// Registered per `(stream_pattern, reducer)` at registration time via
+/// `Store::register_reducer_with_policy`. The store consults the policy after
+/// each `read_state` call; when the policy fires, `take_snapshot` is called
+/// in-band.
+///
+/// `EveryNSeconds` and `StateAdaptive` are Phase 7/v1.2.1 dependencies and
+/// return `Error::NotImplemented` at registration time until those phases land.
+#[derive(Debug, Clone)]
+pub enum SnapshotPolicy {
+    /// Current behavior: caller invokes `take_snapshot` explicitly.
+    /// Default for backward compatibility.
+    Manual,
+
+    /// Take a snapshot every N events applied to the reducer across `read_state`
+    /// calls. Fires synchronously after the Nth cumulative event applied since the
+    /// last snapshot. N must be >= 1; N = 0 returns `Error::SnapshotPolicyInvalid`.
+    EveryNEvents(u32),
+
+    /// Take a snapshot every N seconds of wall-clock time.
+    /// Requires Phase 7 background executor. Returns `Error::NotImplemented` at
+    /// registration time until Phase 7 lands.
+    EveryNSeconds(u32),
+
+    /// Take a snapshot when estimated replay cost exceeds `target_replay_cost_us`
+    /// microseconds AND at least `min_events_between` events have been applied
+    /// since the last snapshot. Requires v1.2.1 state-size monitoring.
+    /// Returns `Error::NotImplemented` at registration time until v1.2.1.
+    StateAdaptive {
+        target_replay_cost_us: u32,
+        min_events_between: u32,
+    },
+}
+
+impl Default for SnapshotPolicy {
+    fn default() -> Self {
+        SnapshotPolicy::Manual
+    }
 }

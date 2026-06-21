@@ -6,8 +6,9 @@ use std::{
         Arc, Mutex, MutexGuard, RwLock,
     },
 };
+use parking_lot::RwLock as ParkingRwLock;
 
-use rusqlite::{Connection, TransactionBehavior};
+use rusqlite::Connection;
 
 use crate::{
     append::{append_batch_impl, append_if_impl, append_impl, AppendOutcome},
@@ -24,7 +25,7 @@ use crate::{
     error::Error,
     read::{read_batch_impl, read_by_external_id_impl, read_one_impl, read_range_impl},
     reducers::{BoxedReducer, DynReducer, Reducer, ReducerRegistry, ReducerState},
-    schema::{bootstrap_meta, bootstrap_system_streams, now_us, run_migrations},
+    schema::{bootstrap_meta, bootstrap_system_streams, run_migrations},
     snapshots::{
         find_latest_snapshot, gc_orphaned_snapshots_impl, snapshot_info_impl, write_snapshot,
     },
@@ -36,7 +37,7 @@ use crate::{
     transforms::{apply_transforms, PayloadTransform, TransformEntry},
     types::{
         Append, BranchInfo, CheckpointMode, CreateBranch, EncryptionMode, EventId, FirstOpenPolicy,
-        OpenOptions, ReadQuery, SnapshotInfo, StoredEvent, StreamInfo,
+        OpenOptions, ReadQuery, SnapshotInfo, SnapshotPolicy, StoredEvent, StreamInfo,
     },
     upcasters::{apply_upcaster, Upcaster, UpcasterRegistry},
     wal_watch::WalWatcher,
@@ -89,6 +90,11 @@ struct StoreInner {
     /// Peak depth ever observed in the post-commit dispatch channel.
     /// Updated at each `dispatch_tx.send` site. Diagnostic / observability only.
     dispatch_channel_high_water_mark: Arc<AtomicUsize>,
+    // ── PHASE 6+7+8 FIELDS ───────────────────────────────────────────────────
+    // Phase 6: per-(stream_id, branch) event counter for EveryNEvents policy.
+    // Incremented during read_state; reset to 0 when a snapshot is taken.
+    // Does not survive Store reopen (reset via initial_state at re-open time).
+    snapshot_counters: parking_lot::RwLock<HashMap<(String, String), u32>>,
 }
 
 // ── Public Store ──────────────────────────────────────────────────────────────
@@ -202,6 +208,7 @@ impl Store {
                 read_pool_rx,
                 read_pool_tx,
                 dispatch_channel_high_water_mark: dispatch_hwm,
+                snapshot_counters: ParkingRwLock::new(HashMap::new()),
             }),
         })
     }
@@ -758,6 +765,45 @@ impl Store {
         reg.register_dyn(pattern, reducer)
     }
 
+    // ── PHASE 6+7+8 REDUCER METHODS ──────────────────────────────────────────
+
+    /// Register a reducer with an explicit `SnapshotPolicy`.
+    ///
+    /// `SnapshotPolicy::Manual` is the default (same as `register_reducer`).
+    /// `SnapshotPolicy::EveryNEvents(N)` automatically takes a snapshot after every
+    /// N cumulative events applied during `read_state`. N = 0 returns
+    /// `Error::SnapshotPolicyInvalid`.
+    /// `SnapshotPolicy::EveryNSeconds` and `StateAdaptive` return
+    /// `Error::NotImplemented` until their respective phases land.
+    pub fn register_reducer_with_policy<R: Reducer>(
+        &self,
+        pattern: &str,
+        reducer: R,
+        policy: SnapshotPolicy,
+    ) -> Result<(), Error> {
+        let mut reg = self
+            .inner
+            .reducers
+            .write()
+            .map_err(|_| Error::Internal("reducers lock poisoned".into()))?;
+        reg.register_with_policy(pattern, reducer, policy)
+    }
+
+    /// Register a DynReducer with an explicit `SnapshotPolicy`.
+    pub fn register_dyn_reducer_with_policy(
+        &self,
+        pattern: &str,
+        reducer: Box<dyn DynReducer>,
+        policy: SnapshotPolicy,
+    ) -> Result<(), Error> {
+        let mut reg = self
+            .inner
+            .reducers
+            .write()
+            .map_err(|_| Error::Internal("reducers lock poisoned".into()))?;
+        reg.register_dyn_with_policy(pattern, reducer, policy)
+    }
+
     /// Fold all events on `(stream_id, branch)` through the registered reducer
     /// and return the resulting state. Uses the most recent matching snapshot as a
     /// starting point, falling back to the initial state if none exists.
@@ -766,16 +812,18 @@ impl Store {
         stream_id: &str,
         branch: &str,
     ) -> Result<S, Error> {
-        let reducer = self.get_reducer(stream_id)?;
+        let (reducer, policy) = self.get_reducer_with_policy(stream_id)?;
         let (mut state_bytes, events) = self.compute_state_bytes(
             &reducer,
             stream_id,
             branch,
             None,
         )?;
+        let events_applied = events.len() as u32;
         for event in &events {
             state_bytes = reducer.apply_bytes(&state_bytes, &event.payload)?;
         }
+        self.maybe_auto_snapshot(stream_id, branch, events_applied, &policy)?;
         rmp_serde::from_slice(&state_bytes).map_err(Error::MsgpackDecode)
     }
 
@@ -801,12 +849,14 @@ impl Store {
 
     /// Like `read_state` but returns raw msgpack bytes instead of deserializing.
     pub fn read_state_bytes(&self, stream_id: &str, branch: &str) -> Result<Vec<u8>, Error> {
-        let reducer = self.get_reducer(stream_id)?;
+        let (reducer, policy) = self.get_reducer_with_policy(stream_id)?;
         let (mut state_bytes, events) =
             self.compute_state_bytes(&reducer, stream_id, branch, None)?;
+        let events_applied = events.len() as u32;
         for event in &events {
             state_bytes = reducer.apply_bytes(&state_bytes, &event.payload)?;
         }
+        self.maybe_auto_snapshot(stream_id, branch, events_applied, &policy)?;
         Ok(state_bytes)
     }
 
@@ -1060,6 +1110,65 @@ impl Store {
         })
     }
 
+    /// Look up the reducer Arc + its SnapshotPolicy for `stream_id`.
+    fn get_reducer_with_policy(
+        &self,
+        stream_id: &str,
+    ) -> Result<(Arc<dyn BoxedReducer>, SnapshotPolicy), Error> {
+        let reg = self
+            .inner
+            .reducers
+            .read()
+            .map_err(|_| Error::Internal("reducers lock poisoned".into()))?;
+        reg.find_arc_with_policy(stream_id).ok_or_else(|| Error::ReducerNotFound {
+            stream_id: stream_id.into(),
+        })
+    }
+
+    /// Check whether the SnapshotPolicy for this (stream_id, branch) has fired;
+    /// take a snapshot in-band if so and reset the counter.
+    ///
+    /// Only wired for `read_state` / `read_state_bytes` (full reads).
+    /// `read_state_at_version` and `read_state_bytes_at_version` are historical
+    /// reads and do not advance the auto-snapshot counter.
+    fn maybe_auto_snapshot(
+        &self,
+        stream_id: &str,
+        branch: &str,
+        events_applied: u32,
+        policy: &SnapshotPolicy,
+    ) -> Result<(), Error> {
+        let n = match policy {
+            SnapshotPolicy::EveryNEvents(n) => *n,
+            _ => return Ok(()),
+        };
+
+        let should_snap = {
+            let mut counters = self.inner.snapshot_counters.write();
+            let key = (stream_id.to_string(), branch.to_string());
+            let counter = counters.entry(key).or_insert(0);
+            *counter += events_applied;
+            if *counter >= n {
+                *counter = 0;
+                true
+            } else {
+                false
+            }
+        };
+
+        if should_snap {
+            self.take_snapshot(stream_id, branch)
+                .map(|_| ())
+                .or_else(|e| match e {
+                    // NoEventsToSnapshot is benign — the stream is empty or
+                    // the snapshot is already current; skip silently.
+                    Error::NoEventsToSnapshot { .. } => Ok(()),
+                    other => Err(other),
+                })?;
+        }
+        Ok(())
+    }
+
     /// Load snapshot + read events, returning `(initial_state_bytes, events_to_apply)`.
     ///
     /// When `max_version` is `Some(v)`, only events with version <= v are returned
@@ -1152,17 +1261,7 @@ fn start_dispatcher(
     registry: Arc<SubscriptionRegistry>,
 ) {
     std::thread::spawn(move || {
-        // Open a dedicated write connection for SubscriptionDegraded events.
-        let mut sys_conn = Connection::open(&db_path)
-            .inspect(|c| {
-                let _ = c.execute_batch(
-                    "PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 30000;",
-                );
-            })
-            .map_err(|e| {
-                eprintln!("[WARN fossic] dispatcher: failed to open system connection: {e}");
-            })
-            .ok();
+        let mut sys_writer = crate::system_stream::SystemStreamWriter::new(&db_path);
 
         for event in &dispatch_rx {
             // Never dispatch events on internal _fossic/* streams to avoid degraded loops.
@@ -1172,66 +1271,16 @@ fn start_dispatcher(
 
             let newly_degraded = registry.dispatch_post_commit(&event);
 
-            if let Some(ref mut conn) = sys_conn {
+            if let Some(ref mut writer) = sys_writer {
                 for sub_id in newly_degraded {
-                    write_degraded_event(conn, sub_id, &event.stream_id, &event.branch, event.version);
+                    writer.emit_subscription_degraded(
+                        sub_id,
+                        &event.stream_id,
+                        &event.branch,
+                        event.version,
+                    );
                 }
             }
         }
     });
-}
-
-/// Write a `SubscriptionDegraded` event to `_fossic/system`.
-/// Errors are silently ignored — best-effort delivery for diagnostic purposes.
-fn write_degraded_event(
-    conn: &mut Connection,
-    sub_id: u64,
-    stream_id: &str,
-    branch: &str,
-    dropped_version: u64,
-) {
-    use crate::cce::derive_event_id;
-
-    let payload = serde_json::json!({
-        "subscription_id": sub_id,
-        "stream_id": stream_id,
-        "branch": branch,
-        "dropped_version": dropped_version,
-    });
-
-    let payload_bytes = match rmp_serde::to_vec(&payload) {
-        Ok(b) => b,
-        Err(_) => return,
-    };
-
-    let event_id_bytes = match derive_event_id("SubscriptionDegraded", 1, None, &payload) {
-        Ok(b) => b,
-        Err(_) => return,
-    };
-    let event_id = EventId::from_bytes(event_id_bytes);
-
-    let ts = now_us();
-
-    let tx = match conn.transaction_with_behavior(TransactionBehavior::Immediate) {
-        Ok(t) => t,
-        Err(_) => return,
-    };
-
-    let next_version: i64 = match tx.query_row(
-        "SELECT COALESCE(MAX(version), -1) + 1 FROM events \
-         WHERE stream_id = '_fossic/system' AND branch = 'main'",
-        [],
-        |r| r.get(0),
-    ) {
-        Ok(v) => v,
-        Err(_) => return,
-    };
-
-    let _ = tx.execute(
-        "INSERT OR IGNORE INTO events \
-         (id, stream_id, branch, version, timestamp_us, event_type, type_version, payload) \
-         VALUES (?1, '_fossic/system', 'main', ?2, ?3, 'SubscriptionDegraded', 1, ?4)",
-        rusqlite::params![event_id, next_version, ts, payload_bytes],
-    );
-    let _ = tx.commit();
 }
