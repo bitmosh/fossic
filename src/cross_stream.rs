@@ -11,6 +11,7 @@ use std::collections::HashSet;
 // ── WalkDirection ─────────────────────────────────────────────────────────────
 
 /// Direction for `walk_causation`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WalkDirection {
     /// Descendants: events whose `causation_id` is the start event (children, grandchildren…).
     Forward,

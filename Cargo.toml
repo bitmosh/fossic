@@ -122,3 +122,11 @@ path = "tests/causation_bounded.rs"
 [[test]]
 name = "aggregate_bounded"
 path = "tests/aggregate_bounded.rs"
+
+[[test]]
+name = "streaming_iters"
+path = "tests/streaming_iters.rs"
+
+[[test]]
+name = "executor"
+path = "tests/executor.rs"

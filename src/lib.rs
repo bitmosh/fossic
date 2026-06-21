@@ -4,6 +4,7 @@ pub mod subscriptions;
 
 mod append;
 mod branches;
+mod executor;
 mod cross_stream;
 mod cursors;
 mod deletion;
@@ -26,7 +27,7 @@ pub use cross_stream::{Aggregate, AggregateQuery, WalkDirection};
 pub use error::{CceError, Error};
 pub use reducers::{DynReducer, Reducer, ReducerState};
 pub use similarity::{SimilarityHit, SimilarityQuery, SimilaritySearchProvider};
-pub use store::Store;
+pub use store::{CausationIter, CorrelationIter, RangeIter, Store};
 pub use subscriptions::{SubscribeQuery, SubscriptionHandle, SubscriptionHandler, SubscriptionMode};
 pub use transforms::PayloadTransform;
 pub use types::{

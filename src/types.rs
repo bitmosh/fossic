@@ -168,6 +168,7 @@ impl StoredEvent {
 
 // ── ReadQuery ─────────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub struct ReadQuery {
     pub stream_id: String,
     pub branch: String,
@@ -228,6 +229,14 @@ pub struct OpenOptions {
     /// `BackgroundExecutor`; this drop-time call is retained as final-shutdown cleanup even
     /// when Phase 7 is present.
     pub auto_gc_orphans: bool,
+    /// Grace period in milliseconds given to the background executor thread to drain remaining
+    /// tasks and stop cleanly at store close. If the thread does not stop within this window,
+    /// it is detached (not killed) and the store proceeds with shutdown. Default: 10,000ms.
+    pub background_executor_grace_timeout_ms: u64,
+    /// Quiescence window in milliseconds. The background executor only runs a task when both
+    /// the last write and the last subscription dispatch occurred at least this many milliseconds
+    /// ago. Prevents background work from racing concurrent writes. Default: 2,000ms.
+    pub executor_quiescence_window_ms: u64,
 }
 
 impl Default for OpenOptions {
@@ -243,6 +252,8 @@ impl Default for OpenOptions {
             default_max_bytes: None,
             reducer_state_large_threshold_bytes: 1_048_576,
             auto_gc_orphans: false,
+            background_executor_grace_timeout_ms: 10_000,
+            executor_quiescence_window_ms: 2_000,
         }
     }
 }

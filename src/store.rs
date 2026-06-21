@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, VecDeque},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -152,6 +152,9 @@ struct StoreInner {
     reducer_system_writer: parking_lot::Mutex<Option<SystemStreamWriter>>,
     // Rolling state-size + apply-cost buffers, keyed by (stream_id, branch).
     state_monitors: parking_lot::Mutex<HashMap<(String, String), StateMonitor>>,
+    // ── PHASE 7 FIELDS ───────────────────────────────────────────────────────
+    quiescence: Arc<crate::executor::QuiescenceMonitor>,
+    background_executor: parking_lot::Mutex<Option<crate::executor::BackgroundExecutor>>,
 }
 
 // ── Public Store ──────────────────────────────────────────────────────────────
@@ -228,7 +231,8 @@ impl Store {
             crossbeam_channel::unbounded::<StoredEvent>();
         let dispatch_hwm = Arc::new(AtomicUsize::new(0));
 
-        start_dispatcher(path.clone(), dispatch_rx, Arc::clone(&sub_registry));
+        let quiescence = Arc::new(crate::executor::QuiescenceMonitor::new());
+        start_dispatcher(path.clone(), dispatch_rx, Arc::clone(&sub_registry), Arc::clone(&quiescence));
 
         let wal_watcher = WalWatcher::start(
             path.clone(),
@@ -257,27 +261,52 @@ impl Store {
                 .map_err(|_| Error::Internal("read pool send failed during init".into()))?;
         }
 
-        Ok(Store {
-            inner: Arc::new(StoreInner {
-                conn: Mutex::new(conn),
-                path,
-                options,
-                transforms: RwLock::new(Vec::new()),
-                upcasters: RwLock::new(UpcasterRegistry::default()),
-                sub_registry,
-                dispatch_tx,
-                _wal_watcher: wal_watcher,
-                branch_cache: RwLock::new(BTreeMap::new()),
-                reducers: RwLock::new(ReducerRegistry::default()),
-                similarity_provider,
-                read_pool_rx,
-                read_pool_tx,
-                dispatch_channel_high_water_mark: dispatch_hwm,
-                snapshot_counters: ParkingRwLock::new(HashMap::new()),
-                reducer_system_writer: parking_lot::Mutex::new(None),
-                state_monitors: parking_lot::Mutex::new(HashMap::new()),
-            }),
-        })
+        let grace_timeout = std::time::Duration::from_millis(options.background_executor_grace_timeout_ms);
+        let quiescence_window_us = options.executor_quiescence_window_ms as i64 * 1_000;
+
+        let inner = Arc::new(StoreInner {
+            conn: Mutex::new(conn),
+            path,
+            options,
+            transforms: RwLock::new(Vec::new()),
+            upcasters: RwLock::new(UpcasterRegistry::default()),
+            sub_registry,
+            dispatch_tx,
+            _wal_watcher: wal_watcher,
+            branch_cache: RwLock::new(BTreeMap::new()),
+            reducers: RwLock::new(ReducerRegistry::default()),
+            similarity_provider,
+            read_pool_rx,
+            read_pool_tx,
+            dispatch_channel_high_water_mark: dispatch_hwm,
+            snapshot_counters: ParkingRwLock::new(HashMap::new()),
+            reducer_system_writer: parking_lot::Mutex::new(None),
+            state_monitors: parking_lot::Mutex::new(HashMap::new()),
+            quiescence: Arc::clone(&quiescence),
+            background_executor: parking_lot::Mutex::new(None),
+        });
+
+        // Spawn executor after Arc creation so we can downgrade to Weak.
+        {
+            let strong: Arc<dyn crate::executor::StoreOps> = inner.clone();
+            let weak = Arc::downgrade(&strong);
+            match crate::executor::BackgroundExecutor::spawn(
+                weak,
+                quiescence,
+                inner.path.clone(),
+                grace_timeout,
+                quiescence_window_us,
+            ) {
+                Ok(executor) => {
+                    *inner.background_executor.lock() = Some(executor);
+                }
+                Err(e) => {
+                    eprintln!("[WARN fossic] fossic-bg spawn failed: {e}");
+                }
+            }
+        }
+
+        Ok(Store { inner })
     }
 
     pub fn close(self) -> Result<(), Error> {
@@ -334,6 +363,8 @@ impl Store {
             (outcome.event_id, stored)
         }; // conn lock released
 
+        self.inner.quiescence.note_write();
+
         if let Some(s) = post_commit {
             let depth = self.inner.dispatch_tx.len() + 1;
             self.inner.dispatch_channel_high_water_mark.fetch_max(depth, Ordering::Relaxed);
@@ -373,6 +404,10 @@ impl Store {
 
             (ids, post_commits)
         }; // conn lock released
+
+        if !ids.is_empty() {
+            self.inner.quiescence.note_write();
+        }
 
         for s in post_commits {
             let depth = self.inner.dispatch_tx.len() + 1;
@@ -435,6 +470,10 @@ impl Store {
                 }
             }
         }; // conn lock released
+
+        if event_id_opt.is_some() {
+            self.inner.quiescence.note_write();
+        }
 
         if let Some(s) = post_commit {
             let depth = self.inner.dispatch_tx.len() + 1;
@@ -880,6 +919,54 @@ impl Store {
             .map_err(|_| Error::Internal("upcasters lock poisoned".into()))?;
         let conn = self.read_conn()?;
         aggregate_bounded_impl(&conn, query, agg, &upcasters, effective_events, effective_bytes)
+    }
+
+    // ── Streaming Iterators ───────────────────────────────────────────────────
+
+    /// Returns an iterator over all events matching `query`, fetching `ITER_BATCH_SIZE` events
+    /// per pool-connection acquire/release cycle. The pool connection is always released before
+    /// the iterator yields to the caller — safe to use in long-running consumer loops.
+    pub fn read_range_iter(&self, query: ReadQuery) -> RangeIter {
+        RangeIter {
+            store: self.clone(),
+            query,
+            resume: None,
+            buffer: VecDeque::new(),
+            exhausted: false,
+        }
+    }
+
+    /// Returns an iterator over all events sharing `correlation_id`, fetching in batches.
+    /// Pool connection is released before each yield.
+    pub fn read_by_correlation_iter(&self, correlation_id: EventId) -> CorrelationIter {
+        CorrelationIter {
+            store: self.clone(),
+            correlation_id,
+            resume: None,
+            buffer: VecDeque::new(),
+            exhausted: false,
+        }
+    }
+
+    /// Returns an iterator over the causation graph rooted at `start`, fetching in batches.
+    /// Pool connection is released before each yield.
+    pub fn walk_causation_iter(
+        &self,
+        start: EventId,
+        direction: WalkDirection,
+        max_depth: usize,
+        sampling: SamplingMode,
+    ) -> CausationIter {
+        CausationIter {
+            store: self.clone(),
+            start,
+            direction,
+            max_depth,
+            sampling,
+            resume: None,
+            buffer: VecDeque::new(),
+            exhausted: false,
+        }
     }
 
     // ── Upcasters ─────────────────────────────────────────────────────────────
@@ -1624,6 +1711,208 @@ impl Store {
     }
 }
 
+// ── StoreOps impl ─────────────────────────────────────────────────────────────
+
+impl crate::executor::StoreOps for StoreInner {
+    fn bg_gc_orphaned_snapshots(&self) -> Result<usize, crate::error::Error> {
+        let keys = {
+            let reg = self.reducers.read()
+                .map_err(|_| crate::error::Error::Internal("reducers lock poisoned".into()))?;
+            reg.active_keys()
+        };
+        let conn = self.conn.lock()
+            .map_err(|_| crate::error::Error::Internal("write conn lock poisoned".into()))?;
+        gc_orphaned_snapshots_impl(&conn, &keys)
+    }
+
+    fn bg_take_snapshot(
+        &self,
+        _stream_id: &str,
+        _branch: &str,
+    ) -> Result<crate::types::SnapshotInfo, crate::error::Error> {
+        // Not yet scheduled by v1.3.0 — placeholder for v1.3.1 EveryNSeconds.
+        Err(crate::error::Error::NotImplemented {
+            feature: "bg_take_snapshot (scheduled via Phase 7.1 EveryNSeconds)",
+        })
+    }
+}
+
+// ── Streaming Iterators ───────────────────────────────────────────────────────
+//
+// Each iterator acquires a pool connection once per internal batch, releases it
+// before yielding any events, then repeats. The pool is never held across an
+// `Iterator::next` boundary, so long-running consumer loops cannot starve
+// concurrent readers.
+//
+// ITER_BATCH_SIZE controls internal fetch granularity; it is not observable to callers.
+// All three iterators are fused: after returning `None` they return `None` forever.
+
+const ITER_BATCH_SIZE: usize = 100;
+
+// ── RangeIter ─────────────────────────────────────────────────────────────────
+
+/// Streaming iterator over `read_range`. See `Store::read_range_iter`.
+pub struct RangeIter {
+    store: Store,
+    query: ReadQuery,
+    resume: Option<TruncationCursor>,
+    buffer: VecDeque<StoredEvent>,
+    exhausted: bool,
+}
+
+impl RangeIter {
+    fn fetch_batch(&mut self) -> Result<(), Error> {
+        let resume = self.resume.take();
+        match self.store.read_range_bounded(self.query.clone(), Some(ITER_BATCH_SIZE), None, resume)? {
+            ReadOutcome::Complete(events) => {
+                self.buffer.extend(events);
+                self.exhausted = true;
+            }
+            ReadOutcome::Truncated { data, cursor, .. } => {
+                self.buffer.extend(data);
+                self.resume = cursor;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Iterator for RangeIter {
+    type Item = Result<StoredEvent, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.exhausted && self.buffer.is_empty() {
+            return None;
+        }
+        if self.buffer.is_empty() {
+            if let Err(e) = self.fetch_batch() {
+                self.exhausted = true;
+                return Some(Err(e));
+            }
+            if self.buffer.is_empty() {
+                self.exhausted = true;
+                return None;
+            }
+        }
+        self.buffer.pop_front().map(Ok)
+    }
+}
+
+impl std::iter::FusedIterator for RangeIter {}
+
+// ── CorrelationIter ───────────────────────────────────────────────────────────
+
+/// Streaming iterator over `read_by_correlation`. See `Store::read_by_correlation_iter`.
+pub struct CorrelationIter {
+    store: Store,
+    correlation_id: EventId,
+    resume: Option<TruncationCursor>,
+    buffer: VecDeque<StoredEvent>,
+    exhausted: bool,
+}
+
+impl CorrelationIter {
+    fn fetch_batch(&mut self) -> Result<(), Error> {
+        let resume = self.resume.take();
+        match self.store.read_by_correlation_bounded(self.correlation_id, Some(ITER_BATCH_SIZE), None, resume)? {
+            ReadOutcome::Complete(events) => {
+                self.buffer.extend(events);
+                self.exhausted = true;
+            }
+            ReadOutcome::Truncated { data, cursor, .. } => {
+                self.buffer.extend(data);
+                self.resume = cursor;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Iterator for CorrelationIter {
+    type Item = Result<StoredEvent, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.exhausted && self.buffer.is_empty() {
+            return None;
+        }
+        if self.buffer.is_empty() {
+            if let Err(e) = self.fetch_batch() {
+                self.exhausted = true;
+                return Some(Err(e));
+            }
+            if self.buffer.is_empty() {
+                self.exhausted = true;
+                return None;
+            }
+        }
+        self.buffer.pop_front().map(Ok)
+    }
+}
+
+impl std::iter::FusedIterator for CorrelationIter {}
+
+// ── CausationIter ─────────────────────────────────────────────────────────────
+
+/// Streaming iterator over `walk_causation`. See `Store::walk_causation_iter`.
+pub struct CausationIter {
+    store: Store,
+    start: EventId,
+    direction: WalkDirection,
+    max_depth: usize,
+    sampling: SamplingMode,
+    resume: Option<TruncationCursor>,
+    buffer: VecDeque<StoredEvent>,
+    exhausted: bool,
+}
+
+impl CausationIter {
+    fn fetch_batch(&mut self) -> Result<(), Error> {
+        let resume = self.resume.take();
+        match self.store.walk_causation_bounded(
+            self.start,
+            self.direction,
+            self.max_depth,
+            self.sampling,
+            Some(ITER_BATCH_SIZE),
+            None,
+            resume,
+        )? {
+            ReadOutcome::Complete(events) => {
+                self.buffer.extend(events);
+                self.exhausted = true;
+            }
+            ReadOutcome::Truncated { data, cursor, .. } => {
+                self.buffer.extend(data);
+                self.resume = cursor;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Iterator for CausationIter {
+    type Item = Result<StoredEvent, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.exhausted && self.buffer.is_empty() {
+            return None;
+        }
+        if self.buffer.is_empty() {
+            if let Err(e) = self.fetch_batch() {
+                self.exhausted = true;
+                return Some(Err(e));
+            }
+            if self.buffer.is_empty() {
+                self.exhausted = true;
+                return None;
+            }
+        }
+        self.buffer.pop_front().map(Ok)
+    }
+}
+
+impl std::iter::FusedIterator for CausationIter {}
+
 // ── Module-level helpers ──────────────────────────────────────────────────────
 
 /// Build a `StoredEvent` from append outcome + original Append, without a DB round-trip.
@@ -1652,6 +1941,7 @@ fn start_dispatcher(
     db_path: PathBuf,
     dispatch_rx: crossbeam_channel::Receiver<StoredEvent>,
     registry: Arc<SubscriptionRegistry>,
+    quiescence: Arc<crate::executor::QuiescenceMonitor>,
 ) {
     std::thread::spawn(move || {
         let mut sys_writer = crate::system_stream::SystemStreamWriter::new(&db_path);
@@ -1663,6 +1953,8 @@ fn start_dispatcher(
             }
 
             let newly_degraded = registry.dispatch_post_commit(&event);
+
+            quiescence.note_dispatch();
 
             if let Some(ref mut writer) = sys_writer {
                 for sub_id in newly_degraded {

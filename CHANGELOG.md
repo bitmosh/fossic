@@ -5,13 +5,68 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
-## v1.3.0 — 2026-06-21 — Phase 7 open: Background Executor + Quiescent Operations
+## v1.3.0 — 2026-06-21 — Phase 7: BackgroundExecutor + QuiescenceMonitor
 
-Version bump only. Closes Phase 6 (Snapshot Policies: v1.2.0–v1.2.2).
-Opens Phase 7 (Background Executor + Quiescent Operations). No API changes.
-Pass-complete will ship with Phase 7's first substantive commit.
+**Pass report:** `docs/aseptic/blast-radius/pass-1.3.0.md`
+
+### Added
+
+- `src/executor.rs` (new module) — crate-private Background Executor implementation.
+  - `StoreOps` trait — capability surface the executor needs from the store
+    (`bg_gc_orphaned_snapshots`, `bg_take_snapshot`). Implemented on `StoreInner`; executor
+    holds a `Weak<dyn StoreOps>` so it never keeps the store alive.
+  - `TaskPriority` enum — `Low=0`, `Normal=1`, `High=2` (derives `Ord`).
+  - `TaskKind` enum — `GcOrphanSnapshots`, `TakeSnapshot { stream_id, branch }`.
+  - `BacklogTask` struct — priority + deadline_us + persist_on_drop + kind. Implements `Ord`
+    for `BinaryHeap<BacklogTask>`: higher priority first; equal priority → earlier deadline first.
+  - `QuiescenceMonitor` — two `AtomicI64`: `last_write_us` and `last_subscription_dispatch_us`.
+    Both initialised to `now_us()` at construction. Methods: `note_write()`, `note_dispatch()`,
+    `is_quiescent(window_us) -> bool`.
+  - `BackgroundExecutor` — spawns the `fossic-bg` thread at `Store::open` time.
+    `schedule()` enqueues a `BacklogTask`. `impl Drop` signals the stop-flag and
+    waits `grace_timeout` for the thread via a `crossbeam_channel::bounded::<()>(1)` done
+    channel; times out and detaches (does not kill) on expiry.
+  - `bg_thread_loop` — 500ms poll interval. Stop-path drains remaining tasks: emits
+    `DeferredTaskDropped` system events for `persist_on_drop=true` tasks (lazy-opening a third
+    `SystemStreamWriter` connection), logs and drops others. Normal-path: drain channel into
+    `BinaryHeap`, quiescence gate, pop and execute one task per loop.
+  - Unit tests: heap ordering (high-before-low, earlier-deadline first), QuiescenceMonitor
+    (not quiescent immediately after write or dispatch).
+- `OpenOptions::background_executor_grace_timeout_ms: u64` — grace period in milliseconds
+  before executor is detached at store close. Default: 10,000ms.
+- `OpenOptions::executor_quiescence_window_ms: u64` — minimum quiet window (both write and
+  dispatch idle) before executor runs a task. Default: 2,000ms.
+- `StoreInner::quiescence: Arc<QuiescenceMonitor>` — shared with the dispatcher thread.
+- `StoreInner::background_executor: parking_lot::Mutex<Option<BackgroundExecutor>>` —
+  `Mutex` required because `JoinHandle` is `!Sync`. Initialised to `None` then set after
+  `Arc<StoreInner>` construction so `Weak` downgrade is possible.
+- `impl StoreOps for StoreInner` — wires `bg_gc_orphaned_snapshots` to the existing
+  `gc_orphaned_snapshots_impl` path; `bg_take_snapshot` returns `NotImplemented` (placeholder
+  for v1.3.1 EveryNSeconds).
+- `quiescence.note_write()` called after every successful `append`, `append_batch`,
+  `append_if` (non-conditional: `append_if` only notes when a write actually happened).
+- `quiescence.note_dispatch()` called inside `start_dispatcher` after each post-commit
+  dispatch round.
+- `fossic-py/src/types.rs` manual `OpenOptions` literal — two new fields with defaults.
+- `tests/executor.rs` — two new tests: `executor_lifecycle_no_hang`,
+  `executor_short_grace_closes_within_timeout`.
+- `Cargo.toml` — `[[test]] name = "executor"`.
+
+### Changed
+
+- `Store::open` — creates `QuiescenceMonitor` before `start_dispatcher`, passes it to the
+  dispatcher, and after `Arc<StoreInner>` construction coerces to `Weak<dyn StoreOps>` and
+  spawns `BackgroundExecutor`.
+- `start_dispatcher` signature — added `quiescence: Arc<QuiescenceMonitor>` parameter.
+
+### Test count
+
+317 passing (was 286 in v1.2.2; +31: 4 executor unit tests, 2 executor integration tests,
+25 additional tests added by linter passes between v1.2.2 and v1.3.0).
 
 ---
+
+
 
 ## v1.2.2 — 2026-06-21 — auto_gc_orphans: drop-time GC fallback (Phase 6 close)
 
@@ -112,6 +167,45 @@ writes from separate connections without contention.
 - `EveryNSeconds` and `StateAdaptive` return `Error::NotImplemented` at registration time.
   `EveryNSeconds` requires the Phase 7 background executor (v1.3.x);
   `StateAdaptive` requires v1.2.1 state-size monitoring.
+
+---
+
+## v1.1.5 — 2026-06-21 — Bounded Resource API: streaming iterators
+
+**Pass report:** `docs/aseptic/blast-radius/pass-1.1.5.md`
+
+### Added
+
+- `Store::read_range_iter(query: ReadQuery) -> RangeIter` — streaming iterator over
+  `read_range`. Fetches events in internal batches of 100; pool connection acquired and
+  released per batch, never held across `Iterator::next` yield points.
+- `Store::read_by_correlation_iter(correlation_id: EventId) -> CorrelationIter` — streaming
+  iterator over `read_by_correlation`. Same batch model.
+- `Store::walk_causation_iter(start, direction, max_depth, sampling) -> CausationIter` —
+  streaming iterator over the BFS causation graph. Same batch model.
+- All three types implement `Iterator<Item = Result<StoredEvent, Error>>` and
+  `FusedIterator` — safe to call `next()` after `None`.
+- `tests/streaming_iters.rs` — 14 tests: empty/non-empty paths for all three iterators,
+  fused-after-exhaustion, cross-batch-boundary continuity (105 events), pool-release
+  invariant (pool_size=1 + concurrent reader confirms connection is returned before yield).
+
+### Changed
+
+- `WalkDirection` derives `Debug, Clone, Copy, PartialEq, Eq` (previously no derives).
+  Additive change; no call-site impact.
+- `ReadQuery` derives `Clone` (previously no derives). Additive.
+
+### No aggregate_iter
+
+`aggregate` is fold-shaped and doesn't fit iterator semantics. The `restore()` gap documented
+in v1.1.4 also means fold-resume isn't ready. Deferred to v1.2.x.
+
+### Pool invariant
+
+The pool connection is acquired inside `fetch_batch()`, which returns before `next()` yields.
+The pool is never held across a yield boundary. Confirmed by the
+`iterator_releases_pool_connection_between_yields` test (pool_size=1; concurrent reader
+succeeds in bounded time).
 
 ---
 
