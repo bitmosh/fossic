@@ -5,6 +5,52 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.2.1 — 2026-06-21 — ReducerStateLarge emission + StateAdaptive policy
+
+**Pass report:** `docs/aseptic/blast-radius/pass-1.2.1.md`
+
+### Added
+
+- `OpenOptions::reducer_state_large_threshold_bytes: usize` — rolling-mean state-size threshold
+  (bytes) above which `ReducerStateLarge` is emitted to `_fossic/system`. Computed over the last
+  32 `apply_bytes` results per `(stream_id, branch)`. Emission throttled to once per 60 seconds.
+  Default: 1 MiB (1_048_576). Set to `usize::MAX` to disable.
+- `StateMonitor` struct (crate-private) — rolling buffer of last 32 state sizes and apply costs
+  per `(stream_id, branch)`. Methods: `mean_state_size()`, `avg_apply_cost_us()`.
+- `StoreInner::reducer_system_writer: parking_lot::Mutex<Option<SystemStreamWriter>>` — lazy-
+  initialized system-stream writer for reducer-side emissions. Separate from the dispatcher's
+  writer; owns its own SQLite connection. Initialized on first `ReducerStateLarge` event.
+- `StoreInner::state_monitors: parking_lot::Mutex<HashMap<(String, String), StateMonitor>>` —
+  per-`(stream_id, branch)` rolling monitor; populated inside the `read_state` apply loop.
+- `Store::update_state_monitor` (private) — called per-event in the apply loop; updates rolling
+  state-size and apply-cost buffers.
+- `Store::maybe_emit_state_large` (private) — checks mean vs. threshold, enforces 60-second
+  throttle, lazy-inits writer, emits `ReducerStateLarge` to `_fossic/system`.
+- `SnapshotPolicy::StateAdaptive` now live — enabled in `validate_snapshot_policy` (previously
+  returned `NotImplemented`). Logic in `maybe_auto_snapshot`: fires when
+  `accumulated_events × avg_apply_cost_us > target_replay_cost_us` AND
+  `accumulated >= min_events_between`; counter resets same as `EveryNEvents`.
+- `fossic-py/src/types.rs` — manual `OpenOptions` struct literal updated with
+  `reducer_state_large_threshold_bytes: 1_048_576`.
+- `tests/snapshot_policy.rs` — 4 new tests: `state_adaptive_policy_accepted`,
+  `state_adaptive_triggers_snapshot`, `state_adaptive_respects_min_events_between`,
+  `state_large_emits_to_system_stream`, `state_large_throttled`. Previous
+  `policy_not_implemented_adaptive` renamed and inverted.
+
+### Changed
+
+- `Store::read_state` and `Store::read_state_bytes` apply loops now time each `apply_bytes`
+  call (`now_us()` delta) and call `update_state_monitor`; `maybe_emit_state_large` is called
+  after the loop, before `maybe_auto_snapshot`.
+
+### Architecture
+
+Two `SystemStreamWriter` instances in steady state: dispatcher's (held on dispatch thread) and
+reducer's (lazy Mutex on StoreInner). Both write to `_fossic/system`; WAL handles concurrent
+writes from separate connections without contention.
+
+---
+
 ## v1.2.0 — 2026-06-20 — SnapshotPolicy: EveryNEvents registration and wiring
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.2.0.md`

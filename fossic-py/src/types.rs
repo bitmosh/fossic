@@ -363,6 +363,7 @@ impl TryFrom<&PyOpenOptions> for OpenOptions {
             read_pool_timeout_ms: 30_000,
             default_max_results: None,
             default_max_bytes: None,
+            reducer_state_large_threshold_bytes: 1_048_576,
         })
     }
 }

@@ -215,6 +215,11 @@ pub struct OpenOptions {
     /// Default upper bound on the total payload bytes returned by a single bounded read.
     /// `None` means no default byte-size limit.
     pub default_max_bytes: Option<usize>,
+    /// Rolling-mean state-size threshold (bytes) above which a `ReducerStateLarge` event is
+    /// emitted to `_fossic/system`. Computed over the last 32 `apply_bytes` results per
+    /// `(stream_id, branch)`. Emission is throttled to at most once per 60 seconds per group.
+    /// Default: 1 MiB (1_048_576). Set to `usize::MAX` to disable.
+    pub reducer_state_large_threshold_bytes: usize,
 }
 
 impl Default for OpenOptions {
@@ -228,6 +233,7 @@ impl Default for OpenOptions {
             read_pool_timeout_ms: 30_000,
             default_max_results: None,
             default_max_bytes: None,
+            reducer_state_large_threshold_bytes: 1_048_576,
         }
     }
 }
@@ -373,9 +379,13 @@ pub(crate) enum CursorInner {
     },
     /// Resume point for a `walk_causation`-style bounded read.
     Causation {
-        start_id: [u8; 32],
-        depth: usize,
-        last_seen_id: [u8; 32],
+        /// IDs of the last-yielded BFS level's events. On resume, expand this set
+        /// to obtain the next level (direction encoded in `direction`).
+        frontier: Vec<[u8; 32]>,
+        /// Traversal direction: 0 = Forward, 1 = Backward, 2 = Both.
+        direction: u8,
+        /// Number of BFS levels fully consumed before the cut point.
+        depth_consumed: u32,
     },
 }
 

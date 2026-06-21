@@ -7,6 +7,7 @@ use std::{
     },
 };
 use parking_lot::RwLock as ParkingRwLock;
+use crate::system_stream::SystemStreamWriter;
 
 use rusqlite::Connection;
 
@@ -18,7 +19,7 @@ use crate::{
     },
     cross_stream::{
         aggregate_impl, read_by_correlation_bounded_impl, read_by_correlation_impl,
-        walk_causation_impl, Aggregate, AggregateQuery, WalkDirection,
+        walk_causation_bounded_impl, walk_causation_impl, Aggregate, AggregateQuery, WalkDirection,
     },
     cursors::{get_cursor_impl, set_cursor_impl},
     deletion::{purge_event_impl, shred_stream_impl},
@@ -37,8 +38,8 @@ use crate::{
     transforms::{apply_transforms, PayloadTransform, TransformEntry},
     types::{
         Append, BranchInfo, CheckpointMode, CreateBranch, CursorInner, EncryptionMode, EventId,
-        FirstOpenPolicy, OpenOptions, ReadOutcome, ReadQuery, SnapshotInfo, SnapshotPolicy,
-        StoredEvent, StreamInfo, TruncationCursor,
+        FirstOpenPolicy, OpenOptions, ReadOutcome, ReadQuery, SamplingMode, SnapshotInfo,
+        SnapshotPolicy, StoredEvent, StreamInfo, TruncationCursor,
     },
     upcasters::{apply_upcaster, Upcaster, UpcasterRegistry},
     wal_watch::WalWatcher,
@@ -64,6 +65,54 @@ impl std::ops::Deref for ReadGuard {
     type Target = Connection;
     fn deref(&self) -> &Connection {
         self.conn.as_ref().unwrap()
+    }
+}
+
+// ── State monitor ─────────────────────────────────────────────────────────────
+
+struct StateMonitor {
+    state_sizes: Vec<usize>,
+    last_emission_us: i64,
+    apply_costs_us: Vec<u64>,
+}
+
+impl StateMonitor {
+    fn push_state_size(&mut self, size: usize) {
+        if self.state_sizes.len() >= 32 {
+            self.state_sizes.remove(0);
+        }
+        self.state_sizes.push(size);
+    }
+
+    fn push_apply_cost(&mut self, cost: u64) {
+        if self.apply_costs_us.len() >= 32 {
+            self.apply_costs_us.remove(0);
+        }
+        self.apply_costs_us.push(cost);
+    }
+
+    fn mean_state_size(&self) -> usize {
+        if self.state_sizes.is_empty() {
+            return 0;
+        }
+        self.state_sizes.iter().sum::<usize>() / self.state_sizes.len()
+    }
+
+    fn avg_apply_cost_us(&self) -> u64 {
+        if self.apply_costs_us.is_empty() {
+            return 0;
+        }
+        self.apply_costs_us.iter().sum::<u64>() / self.apply_costs_us.len() as u64
+    }
+}
+
+impl Default for StateMonitor {
+    fn default() -> Self {
+        StateMonitor {
+            state_sizes: Vec::with_capacity(32),
+            last_emission_us: 0,
+            apply_costs_us: Vec::with_capacity(32),
+        }
     }
 }
 
@@ -96,6 +145,12 @@ struct StoreInner {
     // Incremented during read_state; reset to 0 when a snapshot is taken.
     // Does not survive Store reopen (reset via initial_state at re-open time).
     snapshot_counters: parking_lot::RwLock<HashMap<(String, String), u32>>,
+    // Lazy-initialized writer for reducer-side system events (ReducerStateLarge).
+    // Separate from the dispatcher's SystemStreamWriter — reducer apply can run on
+    // any thread, so we own a dedicated connection wrapped in a Mutex.
+    reducer_system_writer: parking_lot::Mutex<Option<SystemStreamWriter>>,
+    // Rolling state-size + apply-cost buffers, keyed by (stream_id, branch).
+    state_monitors: parking_lot::Mutex<HashMap<(String, String), StateMonitor>>,
 }
 
 // ── Public Store ──────────────────────────────────────────────────────────────
@@ -210,6 +265,8 @@ impl Store {
                 read_pool_tx,
                 dispatch_channel_high_water_mark: dispatch_hwm,
                 snapshot_counters: ParkingRwLock::new(HashMap::new()),
+                reducer_system_writer: parking_lot::Mutex::new(None),
+                state_monitors: parking_lot::Mutex::new(HashMap::new()),
             }),
         })
     }
@@ -685,6 +742,94 @@ impl Store {
             .collect()
     }
 
+    /// Bounded BFS causation walk. Cuts at BFS level boundaries — always yields
+    /// whole levels; the first level is always returned even if it exceeds the budget.
+    ///
+    /// Budget resolution (per-call takes precedence over store-level defaults):
+    /// - effective limit = `max_results` ?? `OpenOptions::default_max_results` ?? unbounded
+    /// - effective bytes = `max_bytes` ?? `OpenOptions::default_max_bytes` ?? unbounded
+    ///
+    /// `sampling` controls per-level node selection:
+    /// - `Exhaustive` — all nodes at each level
+    /// - `BreadthFirst { max_per_level }` — first `max_per_level` by `id ASC`
+    /// - `Adaptive { target_count }` — computes `max_per_level = max(1, target_count / max_depth)`
+    ///
+    /// Pass `resume` from a previous `ReadOutcome::Truncated` to continue a paged walk.
+    pub fn walk_causation_bounded(
+        &self,
+        start: EventId,
+        direction: WalkDirection,
+        max_depth: usize,
+        sampling: SamplingMode,
+        max_results: Option<usize>,
+        max_bytes: Option<usize>,
+        resume: Option<TruncationCursor>,
+    ) -> Result<ReadOutcome<Vec<StoredEvent>>, Error> {
+        let effective_results = max_results.or(self.inner.options.default_max_results);
+        let effective_bytes = max_bytes.or(self.inner.options.default_max_bytes);
+
+        let resume_state = match resume {
+            Some(cursor) => match cursor.decode()? {
+                CursorInner::Causation { frontier, direction: cursor_dir, depth_consumed } => {
+                    let expected_dir: u8 = match &direction {
+                        WalkDirection::Forward => 0,
+                        WalkDirection::Backward => 1,
+                        WalkDirection::Both => 2,
+                    };
+                    if cursor_dir != expected_dir {
+                        return Err(Error::Internal(
+                            "cursor direction mismatch for walk_causation_bounded".into(),
+                        ));
+                    }
+                    Some((frontier, depth_consumed))
+                }
+                _ => {
+                    return Err(Error::Internal(
+                        "cursor type mismatch: expected Causation".into(),
+                    ))
+                }
+            },
+            None => None,
+        };
+
+        let outcome = {
+            let conn = self.read_conn()?;
+            walk_causation_bounded_impl(
+                &conn,
+                start,
+                &direction,
+                max_depth,
+                sampling,
+                resume_state,
+                effective_results,
+                effective_bytes,
+            )?
+        };
+
+        let upcasters = self
+            .inner
+            .upcasters
+            .read()
+            .map_err(|_| Error::Internal("upcasters lock poisoned".into()))?;
+
+        match outcome {
+            ReadOutcome::Complete(events) => Ok(ReadOutcome::Complete(
+                events
+                    .into_iter()
+                    .map(|e| apply_upcaster(&upcasters, e))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+            ReadOutcome::Truncated { data, cursor, reason } => Ok(ReadOutcome::Truncated {
+                data: data
+                    .into_iter()
+                    .map(|e| apply_upcaster(&upcasters, e))
+                    .collect::<Result<Vec<_>, _>>()?,
+                cursor,
+                reason,
+            }),
+        }
+    }
+
     pub fn aggregate<A: Aggregate>(
         &self,
         query: AggregateQuery,
@@ -942,8 +1087,12 @@ impl Store {
         )?;
         let events_applied = events.len() as u32;
         for event in &events {
+            let t0 = crate::schema::now_us();
             state_bytes = reducer.apply_bytes(&state_bytes, &event.payload)?;
+            let cost_us = (crate::schema::now_us() - t0).max(0) as u64;
+            self.update_state_monitor(stream_id, branch, state_bytes.len(), cost_us);
         }
+        self.maybe_emit_state_large(stream_id, branch)?;
         self.maybe_auto_snapshot(stream_id, branch, events_applied, &policy)?;
         rmp_serde::from_slice(&state_bytes).map_err(Error::MsgpackDecode)
     }
@@ -975,8 +1124,12 @@ impl Store {
             self.compute_state_bytes(&reducer, stream_id, branch, None)?;
         let events_applied = events.len() as u32;
         for event in &events {
+            let t0 = crate::schema::now_us();
             state_bytes = reducer.apply_bytes(&state_bytes, &event.payload)?;
+            let cost_us = (crate::schema::now_us() - t0).max(0) as u64;
+            self.update_state_monitor(stream_id, branch, state_bytes.len(), cost_us);
         }
+        self.maybe_emit_state_large(stream_id, branch)?;
         self.maybe_auto_snapshot(stream_id, branch, events_applied, &policy)?;
         Ok(state_bytes)
     }
@@ -1258,22 +1411,50 @@ impl Store {
         events_applied: u32,
         policy: &SnapshotPolicy,
     ) -> Result<(), Error> {
-        let n = match policy {
-            SnapshotPolicy::EveryNEvents(n) => *n,
-            _ => return Ok(()),
-        };
-
-        let should_snap = {
-            let mut counters = self.inner.snapshot_counters.write();
-            let key = (stream_id.to_string(), branch.to_string());
-            let counter = counters.entry(key).or_insert(0);
-            *counter += events_applied;
-            if *counter >= n {
-                *counter = 0;
-                true
-            } else {
-                false
+        let should_snap = match policy {
+            SnapshotPolicy::EveryNEvents(n) => {
+                let mut counters = self.inner.snapshot_counters.write();
+                let key = (stream_id.to_string(), branch.to_string());
+                let counter = counters.entry(key).or_insert(0);
+                *counter += events_applied;
+                if *counter >= *n {
+                    *counter = 0;
+                    true
+                } else {
+                    false
+                }
             }
+            SnapshotPolicy::StateAdaptive { target_replay_cost_us, min_events_between } => {
+                let accumulated = {
+                    let mut counters = self.inner.snapshot_counters.write();
+                    let key = (stream_id.to_string(), branch.to_string());
+                    let counter = counters.entry(key).or_insert(0);
+                    *counter += events_applied;
+                    *counter
+                };
+                if accumulated < *min_events_between {
+                    return Ok(());
+                }
+                let avg_cost = {
+                    let monitors = self.inner.state_monitors.lock();
+                    monitors
+                        .get(&(stream_id.to_string(), branch.to_string()))
+                        .map(|m| m.avg_apply_cost_us())
+                        .unwrap_or(0)
+                };
+                let replay_cost_estimate = (accumulated as u64).saturating_mul(avg_cost);
+                if replay_cost_estimate > *target_replay_cost_us as u64 {
+                    let mut counters = self.inner.snapshot_counters.write();
+                    let key = (stream_id.to_string(), branch.to_string());
+                    if let Some(c) = counters.get_mut(&key) {
+                        *c = 0;
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            _ => return Ok(()),
         };
 
         if should_snap {
@@ -1285,6 +1466,60 @@ impl Store {
                     Error::NoEventsToSnapshot { .. } => Ok(()),
                     other => Err(other),
                 })?;
+        }
+        Ok(())
+    }
+
+    fn update_state_monitor(
+        &self,
+        stream_id: &str,
+        branch: &str,
+        state_len: usize,
+        apply_cost_us: u64,
+    ) {
+        let mut monitors = self.inner.state_monitors.lock();
+        let key = (stream_id.to_string(), branch.to_string());
+        let monitor = monitors.entry(key).or_default();
+        monitor.push_state_size(state_len);
+        monitor.push_apply_cost(apply_cost_us);
+    }
+
+    fn maybe_emit_state_large(&self, stream_id: &str, branch: &str) -> Result<(), Error> {
+        let threshold = self.inner.options.reducer_state_large_threshold_bytes;
+        if threshold == usize::MAX {
+            return Ok(());
+        }
+        let mean_size = {
+            let mut monitors = self.inner.state_monitors.lock();
+            let key = (stream_id.to_string(), branch.to_string());
+            match monitors.get_mut(&key) {
+                None => return Ok(()),
+                Some(m) => {
+                    let mean = m.mean_state_size();
+                    if mean <= threshold {
+                        return Ok(());
+                    }
+                    let now = crate::schema::now_us();
+                    if now - m.last_emission_us < 60_000_000 {
+                        return Ok(());
+                    }
+                    m.last_emission_us = now;
+                    mean
+                }
+            }
+        };
+        let payload = serde_json::json!({
+            "stream_id": stream_id,
+            "branch": branch,
+            "mean_state_bytes": mean_size,
+            "threshold_bytes": threshold,
+        });
+        let mut writer_guard = self.inner.reducer_system_writer.lock();
+        if writer_guard.is_none() {
+            *writer_guard = SystemStreamWriter::new(&self.inner.path);
+        }
+        if let Some(ref mut writer) = *writer_guard {
+            writer.emit("ReducerStateLarge", &payload, None);
         }
         Ok(())
     }

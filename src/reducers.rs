@@ -240,9 +240,7 @@ pub(crate) fn validate_snapshot_policy(policy: &SnapshotPolicy) -> Result<(), Er
         SnapshotPolicy::EveryNSeconds(_) => Err(Error::NotImplemented {
             feature: "SnapshotPolicy::EveryNSeconds (Phase 7 dependency — not yet available)",
         }),
-        SnapshotPolicy::StateAdaptive { .. } => Err(Error::NotImplemented {
-            feature: "SnapshotPolicy::StateAdaptive (v1.2.1 dependency — not yet available)",
-        }),
+        SnapshotPolicy::StateAdaptive { .. } => Ok(()),
     }
 }
 
