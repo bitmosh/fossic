@@ -1,4 +1,5 @@
-use fossic::{BranchInfo, StoredEvent, StreamInfo};
+use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
+use fossic::{BranchInfo, ReadOutcome, SamplingMode, StoredEvent, StreamInfo, TruncationCursor, TruncationReason, WalkDirection};
 use serde::{Deserialize, Serialize};
 
 // ── Serialized types for JSON IPC ─────────────────────────────────────────────
@@ -93,4 +94,89 @@ impl From<BranchInfo> for SerializedBranchInfo {
 
 pub fn map_err(e: fossic::Error) -> String {
     e.to_string()
+}
+
+// ── Bounded read outcome ──────────────────────────────────────────────────────
+
+/// JSON-serializable shape matching the TypeScript ReadOutcome discriminated union.
+/// `reason` and `next_cursor` are omitted (not just null) for `complete` outcomes.
+#[derive(Debug, Clone, Serialize)]
+pub struct SerializedReadOutcome {
+    pub kind: &'static str,
+    pub results: Vec<SerializedEvent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
+}
+
+impl SerializedReadOutcome {
+    pub fn from_outcome(outcome: ReadOutcome<Vec<StoredEvent>>) -> Self {
+        match outcome {
+            ReadOutcome::Complete(events) => SerializedReadOutcome {
+                kind: "complete",
+                results: events.iter().map(SerializedEvent::from_stored).collect(),
+                reason: None,
+                next_cursor: None,
+            },
+            ReadOutcome::Truncated { data, cursor, reason } => SerializedReadOutcome {
+                kind: "truncated",
+                results: data.iter().map(SerializedEvent::from_stored).collect(),
+                reason: Some(match reason {
+                    TruncationReason::ResultCount => "result_count",
+                    TruncationReason::ByteSize => "byte_size",
+                }),
+                next_cursor: cursor.map(|c| B64.encode(c.as_bytes())),
+            },
+        }
+    }
+}
+
+// ── Cursor helpers ────────────────────────────────────────────────────────────
+
+pub fn parse_cursor(s: &str) -> Result<TruncationCursor, String> {
+    B64.decode(s)
+        .map(TruncationCursor::from_bytes)
+        .map_err(|e| format!("invalid cursor: {e}"))
+}
+
+// ── Direction helpers ─────────────────────────────────────────────────────────
+
+pub fn parse_direction(s: &str) -> Result<WalkDirection, String> {
+    match s {
+        "forward" | "Forward" => Ok(WalkDirection::Forward),
+        "backward" | "Backward" => Ok(WalkDirection::Backward),
+        "both" | "Both" => Ok(WalkDirection::Both),
+        other => Err(format!("unknown direction: {other}; use 'forward', 'backward', or 'both'")),
+    }
+}
+
+// ── SamplingMode helpers ──────────────────────────────────────────────────────
+
+/// Parses a JSON tagged object into `SamplingMode`.
+/// Accepts: `{"kind":"exhaustive"}` | `{"kind":"breadthFirst","maxPerLevel":N}` | `{"kind":"adaptive","targetCount":N}`
+/// Absent/null → `Exhaustive`.
+pub fn parse_sampling_mode(v: Option<serde_json::Value>) -> Result<SamplingMode, String> {
+    let Some(v) = v else {
+        return Ok(SamplingMode::Exhaustive);
+    };
+    let kind = v.get("kind").and_then(|k| k.as_str()).unwrap_or("exhaustive");
+    match kind {
+        "exhaustive" => Ok(SamplingMode::Exhaustive),
+        "breadthFirst" | "breadth_first" => {
+            let n = v.get("maxPerLevel")
+                .or_else(|| v.get("max_per_level"))
+                .and_then(|n| n.as_u64())
+                .unwrap_or(100) as usize;
+            Ok(SamplingMode::BreadthFirst { max_per_level: n })
+        }
+        "adaptive" => {
+            let n = v.get("targetCount")
+                .or_else(|| v.get("target_count"))
+                .and_then(|n| n.as_u64())
+                .unwrap_or(100) as usize;
+            Ok(SamplingMode::Adaptive { target_count: n })
+        }
+        other => Err(format!("unknown sampling mode: {other}")),
+    }
 }

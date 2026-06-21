@@ -811,6 +811,7 @@ dependencies = [
 name = "fossic-tauri"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "fossic",
  "parking_lot",
  "serde",

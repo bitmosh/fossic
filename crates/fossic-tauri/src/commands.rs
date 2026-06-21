@@ -1,8 +1,11 @@
-use fossic::{EventId, ReadQuery, Store, SubscribeQuery, SubscriptionHandler, SubscriptionMode};
+use fossic::{AggregateQuery, EventId, ReadQuery, Store, SubscribeQuery, SubscriptionHandler, SubscriptionMode};
 use tauri::{AppHandle, Emitter, Runtime, State};
 
 use crate::{
-    serialization::{SerializedBranchInfo, SerializedEvent, SerializedStreamInfo},
+    serialization::{
+        parse_cursor, parse_direction, parse_sampling_mode, SerializedBranchInfo, SerializedEvent,
+        SerializedReadOutcome, SerializedStreamInfo,
+    },
     SubscriptionMap,
 };
 
@@ -35,6 +38,18 @@ impl From<fossic::Error> for FossicTauriError {
             message: e.to_string(),
         }
     }
+}
+
+fn direction_err(msg: String) -> FossicTauriError {
+    FossicTauriError { code: "StorageError", message: msg }
+}
+
+fn sampling_err(msg: String) -> FossicTauriError {
+    FossicTauriError { code: "StorageError", message: msg }
+}
+
+fn cursor_err(msg: String) -> FossicTauriError {
+    FossicTauriError { code: "StorageError", message: msg }
 }
 
 // ── Stream commands ───────────────────────────────────────────────────────────
@@ -159,23 +174,200 @@ pub fn fossic_walk_causation(
     direction: String,
     max_depth: Option<usize>,
 ) -> Result<Vec<SerializedEvent>, FossicTauriError> {
-    use fossic::WalkDirection;
     let start_id = EventId::from_hex(&start).map_err(FossicTauriError::from)?;
-    let dir = match direction.as_str() {
-        "forward" | "Forward" => WalkDirection::Forward,
-        "backward" | "Backward" => WalkDirection::Backward,
-        _ => {
-            return Err(FossicTauriError {
-                code: "StorageError",
-                message: format!(
-                    "unknown direction: {direction}; use 'forward' or 'backward'"
-                ),
-            })
-        }
-    };
+    let dir = parse_direction(&direction).map_err(direction_err)?;
     store
         .walk_causation(start_id, dir, max_depth.unwrap_or(i64::MAX as usize))
         .map(|v| v.iter().map(SerializedEvent::from_stored).collect())
+        .map_err(FossicTauriError::from)
+}
+
+// ── Bounded read commands ─────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn fossic_read_range_bounded(
+    store: State<'_, Store>,
+    stream_id: String,
+    branch: Option<String>,
+    from_version: Option<u64>,
+    to_version: Option<u64>,
+    event_type_filter: Option<String>,
+    max_results: Option<usize>,
+    max_bytes: Option<usize>,
+) -> Result<SerializedReadOutcome, FossicTauriError> {
+    let mut q = ReadQuery::stream(stream_id);
+    if let Some(b) = branch { q.branch = b; }
+    if let Some(v) = from_version { q.from_version = Some(v); }
+    if let Some(v) = to_version { q.to_version = Some(v); }
+    if let Some(f) = event_type_filter { q.event_type_filter = Some(f); }
+    store.read_range_bounded(q, max_results, max_bytes, None)
+        .map(SerializedReadOutcome::from_outcome)
+        .map_err(FossicTauriError::from)
+}
+
+#[tauri::command]
+pub fn fossic_read_range_from_cursor(
+    store: State<'_, Store>,
+    stream_id: String,
+    branch: Option<String>,
+    from_version: Option<u64>,
+    to_version: Option<u64>,
+    event_type_filter: Option<String>,
+    max_results: Option<usize>,
+    max_bytes: Option<usize>,
+    cursor: String,
+) -> Result<SerializedReadOutcome, FossicTauriError> {
+    let mut q = ReadQuery::stream(stream_id);
+    if let Some(b) = branch { q.branch = b; }
+    if let Some(v) = from_version { q.from_version = Some(v); }
+    if let Some(v) = to_version { q.to_version = Some(v); }
+    if let Some(f) = event_type_filter { q.event_type_filter = Some(f); }
+    let c = parse_cursor(&cursor).map_err(cursor_err)?;
+    store.read_range_bounded(q, max_results, max_bytes, Some(c))
+        .map(SerializedReadOutcome::from_outcome)
+        .map_err(FossicTauriError::from)
+}
+
+#[tauri::command]
+pub fn fossic_read_by_correlation_bounded(
+    store: State<'_, Store>,
+    correlation_id: String,
+    max_results: Option<usize>,
+    max_bytes: Option<usize>,
+) -> Result<SerializedReadOutcome, FossicTauriError> {
+    let id = EventId::from_hex(&correlation_id).map_err(FossicTauriError::from)?;
+    store.read_by_correlation_bounded(id, max_results, max_bytes, None)
+        .map(SerializedReadOutcome::from_outcome)
+        .map_err(FossicTauriError::from)
+}
+
+#[tauri::command]
+pub fn fossic_read_by_correlation_from_cursor(
+    store: State<'_, Store>,
+    correlation_id: String,
+    max_results: Option<usize>,
+    max_bytes: Option<usize>,
+    cursor: String,
+) -> Result<SerializedReadOutcome, FossicTauriError> {
+    let id = EventId::from_hex(&correlation_id).map_err(FossicTauriError::from)?;
+    let c = parse_cursor(&cursor).map_err(cursor_err)?;
+    store.read_by_correlation_bounded(id, max_results, max_bytes, Some(c))
+        .map(SerializedReadOutcome::from_outcome)
+        .map_err(FossicTauriError::from)
+}
+
+#[tauri::command]
+pub fn fossic_walk_causation_bounded(
+    store: State<'_, Store>,
+    start: String,
+    direction: String,
+    max_depth: Option<usize>,
+    sampling: Option<serde_json::Value>,
+    max_results: Option<usize>,
+    max_bytes: Option<usize>,
+) -> Result<SerializedReadOutcome, FossicTauriError> {
+    let start_id = EventId::from_hex(&start).map_err(FossicTauriError::from)?;
+    let dir = parse_direction(&direction).map_err(direction_err)?;
+    let depth = max_depth.unwrap_or(i64::MAX as usize);
+    let samp = parse_sampling_mode(sampling).map_err(sampling_err)?;
+    store.walk_causation_bounded(start_id, dir, depth, samp, max_results, max_bytes, None)
+        .map(SerializedReadOutcome::from_outcome)
+        .map_err(FossicTauriError::from)
+}
+
+#[tauri::command]
+pub fn fossic_walk_causation_from_cursor(
+    store: State<'_, Store>,
+    start: String,
+    direction: String,
+    max_depth: Option<usize>,
+    sampling: Option<serde_json::Value>,
+    max_results: Option<usize>,
+    max_bytes: Option<usize>,
+    cursor: String,
+) -> Result<SerializedReadOutcome, FossicTauriError> {
+    let start_id = EventId::from_hex(&start).map_err(FossicTauriError::from)?;
+    let dir = parse_direction(&direction).map_err(direction_err)?;
+    let depth = max_depth.unwrap_or(i64::MAX as usize);
+    let samp = parse_sampling_mode(sampling).map_err(sampling_err)?;
+    let c = parse_cursor(&cursor).map_err(cursor_err)?;
+    store.walk_causation_bounded(start_id, dir, depth, samp, max_results, max_bytes, Some(c))
+        .map(SerializedReadOutcome::from_outcome)
+        .map_err(FossicTauriError::from)
+}
+
+// ── Aggregate bounded ─────────────────────────────────────────────────────────
+
+/// Internal aggregate that collects matching events to a Vec<SerializedEvent>.
+/// Enables cross-stream, timestamp-range, and indexed_tags_filter queries via
+/// AggregateQuery, which ReadQuery's single-stream model cannot express.
+struct CollectAggregate {
+    events: Vec<SerializedEvent>,
+}
+
+impl Clone for CollectAggregate {
+    fn clone(&self) -> Self {
+        CollectAggregate { events: self.events.clone() }
+    }
+}
+
+impl fossic::Aggregate for CollectAggregate {
+    type Output = Vec<SerializedEvent>;
+    fn fold(&mut self, event: &fossic::StoredEvent) {
+        self.events.push(SerializedEvent::from_stored(event));
+    }
+    fn finalize(self) -> Self::Output {
+        self.events
+    }
+}
+
+/// Aggregate-bounded outcome — `next_cursor` is always absent because
+/// fold-resume is not yet supported (deferred to v1.2.x).
+#[derive(serde::Serialize)]
+pub struct SerializedAggregateOutcome {
+    pub kind: &'static str,
+    pub results: Vec<SerializedEvent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
+}
+
+#[tauri::command]
+pub fn fossic_aggregate_bounded(
+    store: State<'_, Store>,
+    stream_pattern: String,
+    branch: Option<String>,
+    event_type_filter: Option<String>,
+    from_timestamp_us: Option<i64>,
+    to_timestamp_us: Option<i64>,
+    indexed_tags_filter: Option<serde_json::Value>,
+    max_events_scanned: Option<usize>,
+    max_bytes: Option<usize>,
+) -> Result<SerializedAggregateOutcome, FossicTauriError> {
+    let q = AggregateQuery {
+        stream_pattern,
+        branch: branch.unwrap_or_else(|| "main".to_string()),
+        event_type_filter,
+        from_timestamp_us,
+        to_timestamp_us,
+        indexed_tags_filter,
+    };
+    let agg = CollectAggregate { events: Vec::new() };
+    store.aggregate_bounded(q, agg, max_events_scanned, max_bytes)
+        .map(|outcome| match outcome {
+            fossic::ReadOutcome::Complete(events) => SerializedAggregateOutcome {
+                kind: "complete",
+                results: events,
+                reason: None,
+            },
+            fossic::ReadOutcome::Truncated { data, reason, .. } => SerializedAggregateOutcome {
+                kind: "truncated",
+                results: data,
+                reason: Some(match reason {
+                    fossic::TruncationReason::ResultCount => "result_count",
+                    fossic::TruncationReason::ByteSize => "byte_size",
+                }),
+            },
+        })
         .map_err(FossicTauriError::from)
 }
 

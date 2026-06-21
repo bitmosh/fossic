@@ -35,6 +35,13 @@
 //!         fossic_tauri::commands::fossic_unsubscribe,
 //!         fossic_tauri::commands::fossic_read_by_correlation,
 //!         fossic_tauri::commands::fossic_walk_causation,
+//!         fossic_tauri::commands::fossic_read_range_bounded,
+//!         fossic_tauri::commands::fossic_read_range_from_cursor,
+//!         fossic_tauri::commands::fossic_read_by_correlation_bounded,
+//!         fossic_tauri::commands::fossic_read_by_correlation_from_cursor,
+//!         fossic_tauri::commands::fossic_walk_causation_bounded,
+//!         fossic_tauri::commands::fossic_walk_causation_from_cursor,
+//!         fossic_tauri::commands::fossic_aggregate_bounded,
 //!     ])
 //!     .setup(|app| {
 //!         let store = Store::open(
@@ -157,6 +164,13 @@ pub fn plugin<R: Runtime>(store: Store) -> tauri::plugin::TauriPlugin<R> {
             commands::fossic_subscription_status,
             commands::fossic_read_by_correlation,
             commands::fossic_walk_causation,
+            commands::fossic_read_range_bounded,
+            commands::fossic_read_range_from_cursor,
+            commands::fossic_read_by_correlation_bounded,
+            commands::fossic_read_by_correlation_from_cursor,
+            commands::fossic_walk_causation_bounded,
+            commands::fossic_walk_causation_from_cursor,
+            commands::fossic_aggregate_bounded,
         ])
         .setup(move |app, _api| {
             app.manage(store);
@@ -198,6 +212,13 @@ pub fn plugin_with_test_helpers<R: Runtime>(store: Store) -> tauri::plugin::Taur
             commands::fossic_subscription_status,
             commands::fossic_read_by_correlation,
             commands::fossic_walk_causation,
+            commands::fossic_read_range_bounded,
+            commands::fossic_read_range_from_cursor,
+            commands::fossic_read_by_correlation_bounded,
+            commands::fossic_read_by_correlation_from_cursor,
+            commands::fossic_walk_causation_bounded,
+            commands::fossic_walk_causation_from_cursor,
+            commands::fossic_aggregate_bounded,
             commands::fossic_dispatch_test_event,
         ])
         .setup(move |app, _api| {

@@ -5,6 +5,29 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.1.8 — 2026-06-21 — Tauri IPC bounded read commands
+
+**fossic-tauri** gains bounded read commands with cursor resumption.
+
+**Pass report:** `docs/aseptic/blast-radius/pass-1.1.8.md`
+
+### New commands (fossic-tauri)
+- `fossic_read_range_bounded` / `fossic_read_range_from_cursor`
+- `fossic_read_by_correlation_bounded` / `fossic_read_by_correlation_from_cursor`
+- `fossic_walk_causation_bounded` / `fossic_walk_causation_from_cursor`
+- `fossic_aggregate_bounded`
+
+### New types (fossic-tauri)
+- `SerializedReadOutcome` — `{ kind, results, reason?, next_cursor? }` (reason/next_cursor omitted on complete)
+- `TruncationCursor` serialized as base64 string over IPC (vs. `Buffer` in the Node binding)
+
+### Notes
+- Streaming (push over Tauri event channel) is deferred to v1.2.x; use cursor pagination as substitute
+- `fossic_aggregate_bounded` truncation cursor is always null — fold-resume not yet supported by the `Aggregate` trait (deferred to v1.2.x)
+- All existing commands unchanged
+
+---
+
 ## v1.5.0 — 2026-06-21 — Track 2 close: fossic core substrate-complete
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.5.0.md`

@@ -17,6 +17,7 @@ serde        = { workspace = true }
 serde_json   = { workspace = true }
 parking_lot  = { workspace = true }
 uuid         = { version = "1", features = ["v4"] }
+base64       = "0.22"
 shellexpand  = "3"
 # Pin time to avoid cookie 0.18.1 coherence conflict (cookie was designed against time 0.3.36-0.3.37)
 time         = "=0.3.37"
