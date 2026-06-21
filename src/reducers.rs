@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::{error::Error, types::SnapshotPolicy};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 
@@ -106,10 +106,11 @@ impl BoxedReducer for DynReducerAdapter {
 
 // ── Registry ──────────────────────────────────────────────────────────────────
 
-struct ReducerEntry {
-    pattern: String,
-    specificity: usize,
-    reducer: Arc<dyn BoxedReducer>,
+pub(crate) struct ReducerEntry {
+    pub(crate) pattern: String,
+    pub(crate) specificity: usize,
+    pub(crate) reducer: Arc<dyn BoxedReducer>,
+    pub(crate) policy: SnapshotPolicy,
 }
 
 /// In-memory registry of pattern-based reducers.
@@ -119,11 +120,19 @@ pub(crate) struct ReducerRegistry {
 }
 
 impl ReducerRegistry {
-    /// Register a reducer for the given glob pattern.
-    ///
-    /// Raises `ReducerPatternAmbiguous` if the pattern has equal specificity to an
-    /// existing pattern that overlaps (both could match the same stream).
+    /// Register a reducer for the given glob pattern with `SnapshotPolicy::Manual`.
     pub fn register<R: Reducer>(&mut self, pattern: &str, reducer: R) -> Result<(), Error> {
+        self.register_with_policy(pattern, reducer, SnapshotPolicy::Manual)
+    }
+
+    /// Register a reducer with an explicit snapshot policy.
+    pub fn register_with_policy<R: Reducer>(
+        &mut self,
+        pattern: &str,
+        reducer: R,
+        policy: SnapshotPolicy,
+    ) -> Result<(), Error> {
+        validate_snapshot_policy(&policy)?;
         let spec = crate::glob::specificity_score(pattern);
         for existing in &self.entries {
             if patterns_may_overlap(pattern, &existing.pattern) && spec == existing.specificity {
@@ -137,12 +146,22 @@ impl ReducerRegistry {
             pattern: pattern.to_string(),
             specificity: spec,
             reducer: Arc::new(ErasedReducer { reducer }),
+            policy,
         });
         Ok(())
     }
 
     /// Find the most-specific reducer matching `stream_id`.
     pub fn find_arc(&self, stream_id: &str) -> Option<Arc<dyn BoxedReducer>> {
+        self.find_arc_with_policy(stream_id)
+            .map(|(arc, _)| arc)
+    }
+
+    /// Find the most-specific reducer + its policy matching `stream_id`.
+    pub fn find_arc_with_policy(
+        &self,
+        stream_id: &str,
+    ) -> Option<(Arc<dyn BoxedReducer>, SnapshotPolicy)> {
         let mut best: Option<&ReducerEntry> = None;
         for entry in &self.entries {
             if crate::glob::matches(&entry.pattern, stream_id) {
@@ -153,7 +172,7 @@ impl ReducerRegistry {
                 }
             }
         }
-        best.map(|e| Arc::clone(&e.reducer))
+        best.map(|e| (Arc::clone(&e.reducer), e.policy.clone()))
     }
 
     /// Returns all `(reducer_name, state_schema_version)` pairs for GC filtering.
@@ -169,8 +188,19 @@ impl ReducerRegistry {
             .collect()
     }
 
-    /// Register a DynReducer for the given glob pattern.
+    /// Register a DynReducer for the given glob pattern with `SnapshotPolicy::Manual`.
     pub fn register_dyn(&mut self, pattern: &str, reducer: Box<dyn DynReducer>) -> Result<(), Error> {
+        self.register_dyn_with_policy(pattern, reducer, SnapshotPolicy::Manual)
+    }
+
+    /// Register a DynReducer with an explicit snapshot policy.
+    pub fn register_dyn_with_policy(
+        &mut self,
+        pattern: &str,
+        reducer: Box<dyn DynReducer>,
+        policy: SnapshotPolicy,
+    ) -> Result<(), Error> {
+        validate_snapshot_policy(&policy)?;
         let spec = crate::glob::specificity_score(pattern);
         for existing in &self.entries {
             if patterns_may_overlap(pattern, &existing.pattern) && spec == existing.specificity {
@@ -184,6 +214,7 @@ impl ReducerRegistry {
             pattern: pattern.to_string(),
             specificity: spec,
             reducer: Arc::new(DynReducerAdapter { reducer }),
+            policy,
         });
         Ok(())
     }
@@ -194,6 +225,24 @@ impl ReducerRegistry {
             .iter()
             .find(|e| e.reducer.name() == name)
             .map(|e| Arc::clone(&e.reducer))
+    }
+}
+
+// ── Snapshot policy validation ─────────────────────────────────────────────────
+
+pub(crate) fn validate_snapshot_policy(policy: &SnapshotPolicy) -> Result<(), Error> {
+    match policy {
+        SnapshotPolicy::Manual => Ok(()),
+        SnapshotPolicy::EveryNEvents(0) => Err(Error::SnapshotPolicyInvalid(
+            "EveryNEvents requires N >= 1".into(),
+        )),
+        SnapshotPolicy::EveryNEvents(_) => Ok(()),
+        SnapshotPolicy::EveryNSeconds(_) => Err(Error::NotImplemented {
+            feature: "SnapshotPolicy::EveryNSeconds (Phase 7 dependency — not yet available)",
+        }),
+        SnapshotPolicy::StateAdaptive { .. } => Err(Error::NotImplemented {
+            feature: "SnapshotPolicy::StateAdaptive (v1.2.1 dependency — not yet available)",
+        }),
     }
 }
 
