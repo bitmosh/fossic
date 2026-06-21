@@ -124,10 +124,10 @@ pub(crate) fn snapshot_info_impl(
 
 // ── GC ────────────────────────────────────────────────────────────────────────
 
-// CP-T2-1: When Phase 7 (Background Executor) lands, supplement
-// this drop-time GC with quiescent-window scheduling via
-// BackgroundExecutor::schedule(GcOrphanSnapshots, TaskPriority::Low).
-// Keep this drop-time call as final-shutdown cleanup.
+// CP-T2-1 RESOLVED (v1.3.1): drop-time GC is supplemented by a recurring
+// BackgroundExecutor::schedule(GcOrphanSnapshots, TaskPriority::Low) task
+// scheduled hourly when auto_gc_orphans=true. Drop-time call retained as
+// final-shutdown cleanup — it runs even if the executor never fired.
 
 /// Delete snapshots whose `(reducer_name, state_schema_version)` is not in `active`.
 ///

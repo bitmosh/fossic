@@ -34,6 +34,7 @@ pub(crate) enum TaskPriority {
 
 // ── TaskKind ──────────────────────────────────────────────────────────────────
 
+#[derive(Clone)]
 pub(crate) enum TaskKind {
     GcOrphanSnapshots,
     TakeSnapshot { stream_id: String, branch: String },
@@ -59,6 +60,10 @@ pub(crate) struct BacklogTask {
     /// if this task was not executed. When `false`, the task is logged and dropped.
     pub(crate) persist_on_drop: bool,
     pub(crate) kind: TaskKind,
+    /// When `Some(d)`, the task re-queues itself with `deadline = now + d`
+    /// after each successful execution. Recurring tasks run at most once per
+    /// quiescence window regardless of their deadline.
+    pub(crate) recurring_interval: Option<Duration>,
 }
 
 impl PartialEq for BacklogTask {
@@ -262,24 +267,37 @@ fn bg_thread_loop(
 
         // ── Execute one task ──────────────────────────────────────────────────
         if let Some(task) = heap.pop() {
+            let recurring = task.recurring_interval;
             if let Some(ops) = store_ops.upgrade() {
-                execute_task(&*ops, task);
+                execute_task(&*ops, &task);
             }
             // upgrade() returning None means the store has been dropped — skip.
+            // Re-queue if recurring (regardless of whether upgrade succeeded —
+            // if the store is gone the next upgrade will also fail and the task
+            // will be dropped cleanly at the next stop-flag check).
+            if let Some(interval) = recurring {
+                heap.push(BacklogTask {
+                    priority: task.priority,
+                    deadline_us: crate::schema::now_us() + interval.as_micros() as i64,
+                    persist_on_drop: task.persist_on_drop,
+                    kind: task.kind.clone(),
+                    recurring_interval: Some(interval),
+                });
+            }
         }
     }
 
     let _ = done_tx.send(());
 }
 
-fn execute_task(ops: &dyn StoreOps, task: BacklogTask) {
-    match task.kind {
+fn execute_task(ops: &dyn StoreOps, task: &BacklogTask) {
+    match &task.kind {
         TaskKind::GcOrphanSnapshots => {
             if let Err(e) = ops.bg_gc_orphaned_snapshots() {
                 eprintln!("[WARN fossic] fossic-bg: GcOrphanSnapshots failed: {e}");
             }
         }
-        TaskKind::TakeSnapshot { ref stream_id, ref branch } => {
+        TaskKind::TakeSnapshot { stream_id, branch } => {
             if let Err(e) = ops.bg_take_snapshot(stream_id, branch) {
                 eprintln!("[WARN fossic] fossic-bg: TakeSnapshot({stream_id}, {branch}) failed: {e}");
             }
@@ -301,12 +319,14 @@ mod tests {
             deadline_us: 1000,
             persist_on_drop: false,
             kind: TaskKind::GcOrphanSnapshots,
+            recurring_interval: None,
         });
         heap.push(BacklogTask {
             priority: TaskPriority::High,
             deadline_us: 2000,
             persist_on_drop: false,
             kind: TaskKind::GcOrphanSnapshots,
+            recurring_interval: None,
         });
         let first = heap.pop().unwrap();
         assert_eq!(first.priority, TaskPriority::High);
@@ -320,12 +340,14 @@ mod tests {
             deadline_us: 2000,
             persist_on_drop: false,
             kind: TaskKind::GcOrphanSnapshots,
+            recurring_interval: None,
         });
         heap.push(BacklogTask {
             priority: TaskPriority::Low,
             deadline_us: 1000,
             persist_on_drop: false,
             kind: TaskKind::GcOrphanSnapshots,
+            recurring_interval: None,
         });
         let first = heap.pop().unwrap();
         assert_eq!(first.deadline_us, 1000);

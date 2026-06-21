@@ -237,9 +237,10 @@ pub(crate) fn validate_snapshot_policy(policy: &SnapshotPolicy) -> Result<(), Er
             "EveryNEvents requires N >= 1".into(),
         )),
         SnapshotPolicy::EveryNEvents(_) => Ok(()),
-        SnapshotPolicy::EveryNSeconds(_) => Err(Error::NotImplemented {
-            feature: "SnapshotPolicy::EveryNSeconds (Phase 7 dependency — not yet available)",
-        }),
+        SnapshotPolicy::EveryNSeconds(0) => Err(Error::SnapshotPolicyInvalid(
+            "EveryNSeconds requires N >= 1".into(),
+        )),
+        SnapshotPolicy::EveryNSeconds(_) => Ok(()),
         SnapshotPolicy::StateAdaptive { .. } => Ok(()),
     }
 }

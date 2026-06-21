@@ -155,6 +155,12 @@ struct StoreInner {
     // ── PHASE 7 FIELDS ───────────────────────────────────────────────────────
     quiescence: Arc<crate::executor::QuiescenceMonitor>,
     background_executor: parking_lot::Mutex<Option<crate::executor::BackgroundExecutor>>,
+    // Wall-clock time at store open, in microseconds since Unix epoch.
+    // Used as last_snapshot_us fallback when no snapshot has been taken yet.
+    store_open_us: i64,
+    // Per-(stream_id, branch) timestamp of the most recent snapshot scheduling.
+    // Updated optimistically at schedule time to prevent storm-scheduling.
+    last_snapshot_us: parking_lot::RwLock<HashMap<(String, String), i64>>,
 }
 
 // ── Public Store ──────────────────────────────────────────────────────────────
@@ -263,6 +269,7 @@ impl Store {
 
         let grace_timeout = std::time::Duration::from_millis(options.background_executor_grace_timeout_ms);
         let quiescence_window_us = options.executor_quiescence_window_ms as i64 * 1_000;
+        let store_open_us = crate::schema::now_us();
 
         let inner = Arc::new(StoreInner {
             conn: Mutex::new(conn),
@@ -284,6 +291,8 @@ impl Store {
             state_monitors: parking_lot::Mutex::new(HashMap::new()),
             quiescence: Arc::clone(&quiescence),
             background_executor: parking_lot::Mutex::new(None),
+            store_open_us,
+            last_snapshot_us: parking_lot::RwLock::new(HashMap::new()),
         });
 
         // Spawn executor after Arc creation so we can downgrade to Weak.
@@ -303,6 +312,20 @@ impl Store {
                 Err(e) => {
                     eprintln!("[WARN fossic] fossic-bg spawn failed: {e}");
                 }
+            }
+        }
+
+        // Schedule recurring background GC when auto_gc_orphans is enabled.
+        if inner.options.auto_gc_orphans {
+            let ex = inner.background_executor.lock();
+            if let Some(ref executor) = *ex {
+                executor.schedule(crate::executor::BacklogTask {
+                    priority: crate::executor::TaskPriority::Low,
+                    deadline_us: store_open_us,
+                    persist_on_drop: false,
+                    kind: crate::executor::TaskKind::GcOrphanSnapshots,
+                    recurring_interval: Some(std::time::Duration::from_secs(3600)),
+                });
             }
         }
 
@@ -1164,8 +1187,9 @@ impl Store {
     /// `SnapshotPolicy::EveryNEvents(N)` automatically takes a snapshot after every
     /// N cumulative events applied during `read_state`. N = 0 returns
     /// `Error::SnapshotPolicyInvalid`.
-    /// `SnapshotPolicy::EveryNSeconds` and `StateAdaptive` return
-    /// `Error::NotImplemented` until their respective phases land.
+    /// `SnapshotPolicy::EveryNSeconds(N)` schedules a background snapshot via
+    /// `BackgroundExecutor` after N seconds of quiet time (quiescent window).
+    /// N = 0 returns `Error::SnapshotPolicyInvalid`.
     pub fn register_reducer_with_policy<R: Reducer>(
         &self,
         pattern: &str,
@@ -1579,6 +1603,25 @@ impl Store {
                     false
                 }
             }
+            SnapshotPolicy::EveryNSeconds(n) => {
+                let key = (stream_id.to_string(), branch.to_string());
+                let window_us = *n as i64 * 1_000_000;
+                let now = crate::schema::now_us();
+                let last = {
+                    let map = self.inner.last_snapshot_us.read();
+                    map.get(&key).copied().unwrap_or(self.inner.store_open_us)
+                };
+                if now - last >= window_us {
+                    // Optimistic update prevents storm-scheduling between
+                    // the schedule call and the executor's next quiescent window.
+                    {
+                        let mut map = self.inner.last_snapshot_us.write();
+                        map.insert(key, now);
+                    }
+                    self.schedule_background_snapshot(stream_id, branch);
+                }
+                return Ok(());
+            }
             _ => return Ok(()),
         };
 
@@ -1593,6 +1636,22 @@ impl Store {
                 })?;
         }
         Ok(())
+    }
+
+    fn schedule_background_snapshot(&self, stream_id: &str, branch: &str) {
+        let ex = self.inner.background_executor.lock();
+        if let Some(ref executor) = *ex {
+            executor.schedule(crate::executor::BacklogTask {
+                priority: crate::executor::TaskPriority::Normal,
+                deadline_us: crate::schema::now_us(),
+                persist_on_drop: false,
+                kind: crate::executor::TaskKind::TakeSnapshot {
+                    stream_id: stream_id.to_string(),
+                    branch: branch.to_string(),
+                },
+                recurring_interval: None,
+            });
+        }
     }
 
     fn update_state_monitor(
@@ -1727,13 +1786,77 @@ impl crate::executor::StoreOps for StoreInner {
 
     fn bg_take_snapshot(
         &self,
-        _stream_id: &str,
-        _branch: &str,
+        stream_id: &str,
+        branch: &str,
     ) -> Result<crate::types::SnapshotInfo, crate::error::Error> {
-        // Not yet scheduled by v1.3.0 — placeholder for v1.3.1 EveryNSeconds.
-        Err(crate::error::Error::NotImplemented {
-            feature: "bg_take_snapshot (scheduled via Phase 7.1 EveryNSeconds)",
-        })
+        // Replicates Store::take_snapshot using StoreInner's raw fields.
+        let reducer = {
+            let reg = self.reducers.read()
+                .map_err(|_| crate::error::Error::Internal("reducers lock poisoned".into()))?;
+            reg.find_arc(stream_id).ok_or_else(|| crate::error::Error::ReducerNotFound {
+                stream_id: stream_id.into(),
+            })?
+        };
+
+        let (snapshot_version, state_bytes, events) = {
+            let conn = self.read_pool_rx
+                .recv_timeout(std::time::Duration::from_millis(self.options.read_pool_timeout_ms))
+                .map(|c| ReadGuard { conn: Some(c), pool: self.read_pool_tx.clone() })
+                .map_err(|_| crate::error::Error::PoolExhausted {
+                    pool_size: self.options.read_pool_size.max(1),
+                    timeout_ms: self.options.read_pool_timeout_ms,
+                })?;
+
+            let snap = find_latest_snapshot(
+                &conn, stream_id, branch,
+                reducer.name(), reducer.state_schema_version(), None,
+            )?;
+            let (start_v, bytes, prior_v) = match snap {
+                Some((v, b)) => (v + 1, b, Some(v)),
+                None => (0u64, reducer.initial_state_bytes()?, None),
+            };
+            let evs = read_range_impl(&conn, ReadQuery {
+                stream_id: stream_id.to_string(),
+                branch: branch.to_string(),
+                from_version: Some(start_v),
+                to_version: None,
+                limit: None,
+                event_type_filter: None,
+            })?;
+            let snap_ver = if let Some(last) = evs.last() {
+                last.version
+            } else if prior_v.is_some() {
+                return snapshot_info_impl(&conn, stream_id, branch, reducer.name())
+                    .map(|opt| opt.ok_or_else(|| crate::error::Error::NoEventsToSnapshot {
+                        stream_id: stream_id.into(),
+                        branch: branch.into(),
+                    }))?;
+            } else {
+                return Err(crate::error::Error::NoEventsToSnapshot {
+                    stream_id: stream_id.into(),
+                    branch: branch.into(),
+                });
+            };
+            (snap_ver, bytes, evs)
+        };
+
+        let mut state = state_bytes;
+        for event in &events {
+            state = reducer.apply_bytes(&state, &event.payload)?;
+        }
+
+        let conn = self.conn.lock()
+            .map_err(|_| crate::error::Error::Internal("store mutex poisoned".into()))?;
+        let info = write_snapshot(
+            &conn, stream_id, branch, snapshot_version,
+            reducer.name(), reducer.version(), reducer.state_schema_version(), &state,
+        )?;
+
+        // Record snapshot timestamp for EveryNSeconds quiescence gate.
+        let mut map = self.last_snapshot_us.write();
+        map.insert((stream_id.to_string(), branch.to_string()), crate::schema::now_us());
+
+        Ok(info)
     }
 }
 

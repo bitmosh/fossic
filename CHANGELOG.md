@@ -5,6 +5,49 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.3.1 — 2026-06-21 — Phase 6/7 integration: EveryNSeconds + recurring GC
+
+**Pass report:** `docs/aseptic/blast-radius/pass-1.3.1.md`
+
+### Added
+
+- `BacklogTask::recurring_interval: Option<Duration>` — when `Some(d)`, the executor
+  re-queues the task with `deadline = now + d` after each execution. Tasks in the heap
+  at shutdown are drained and handled (persist_on_drop/log) without re-queuing.
+- `Store::schedule_background_snapshot` (private) — enqueues a `TakeSnapshot` task at
+  `TaskPriority::Normal` without a recurring interval.
+- `StoreInner::last_snapshot_us: parking_lot::RwLock<HashMap<(String, String), i64>>` —
+  per-`(stream_id, branch)` timestamp of the most recent snapshot schedule; updated
+  optimistically at schedule time to prevent storm-scheduling in busy `read_state` loops.
+- `StoreInner::store_open_us: i64` — Store open timestamp used as the first-snapshot
+  fallback when no entry exists in `last_snapshot_us`.
+
+### Changed
+
+- `SnapshotPolicy::EveryNSeconds` — now live. `validate_snapshot_policy` accepts
+  `N >= 1`; `N = 0` returns `SnapshotPolicyInvalid`. Was previously `NotImplemented`.
+- `maybe_auto_snapshot` — added `EveryNSeconds(N)` arm: checks `last_snapshot_us`
+  (fallback: `store_open_us`), marks the window optimistically, calls
+  `schedule_background_snapshot`. Snapshot executes during the next quiescent window.
+- `StoreOps::bg_take_snapshot` — fully implemented on `StoreInner` (was
+  `NotImplemented` placeholder). Replicates `Store::take_snapshot` logic using raw
+  fields; updates `last_snapshot_us` after a successful write.
+- `TaskKind` — derives `Clone` (required for recurring re-push).
+- `execute_task` — now takes `&BacklogTask` (was `BacklogTask`); re-push is handled
+  in the caller (`bg_thread_loop`) after execution returns.
+- `Store::open` — when `auto_gc_orphans=true`, schedules an initial
+  `GcOrphanSnapshots` task with `recurring_interval=Some(Duration::from_secs(3600))`
+  at `TaskPriority::Low`.
+- `snapshots.rs` CP-T2-1 marker — updated to "RESOLVED (v1.3.1)".
+- `tests/snapshot_policy.rs` — `policy_not_implemented_seconds` renamed to
+  `policy_every_n_seconds_accepted`; new `policy_every_n_seconds_zero_rejected` test.
+
+### Test count
+
+318 passing (was 317 in v1.3.0; +1: `policy_every_n_seconds_zero_rejected`).
+
+---
+
 ## v1.3.0 — 2026-06-21 — Phase 7: BackgroundExecutor + QuiescenceMonitor
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.3.0.md`

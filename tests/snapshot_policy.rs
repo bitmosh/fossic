@@ -68,14 +68,24 @@ fn policy_invalid_zero() {
 }
 
 #[test]
-fn policy_not_implemented_seconds() {
+fn policy_every_n_seconds_accepted() {
+    // v1.3.1: EveryNSeconds is live — schedules snapshots via BackgroundExecutor.
     let (store, _dir) = open_tmp();
     store.declare_stream("s1", "test", None).unwrap();
     let result =
         store.register_reducer_with_policy("s1", SumReducer, SnapshotPolicy::EveryNSeconds(60));
+    assert!(result.is_ok(), "EveryNSeconds(60) should be accepted, got {result:?}");
+}
+
+#[test]
+fn policy_every_n_seconds_zero_rejected() {
+    let (store, _dir) = open_tmp();
+    store.declare_stream("s1", "test", None).unwrap();
+    let result =
+        store.register_reducer_with_policy("s1", SumReducer, SnapshotPolicy::EveryNSeconds(0));
     assert!(
-        matches!(result, Err(Error::NotImplemented { .. })),
-        "expected NotImplemented, got {result:?}",
+        matches!(result, Err(Error::SnapshotPolicyInvalid(_))),
+        "expected SnapshotPolicyInvalid for N=0, got {result:?}",
     );
 }
 
