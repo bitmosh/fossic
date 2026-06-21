@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     read::{row_to_event, PREFIXED_SELECT_COLS, SELECT_COLS},
-    types::StoredEvent,
+    types::{CursorInner, ReadOutcome, StoredEvent, TruncationCursor, TruncationReason},
     upcasters::{apply_upcaster, UpcasterRegistry},
     EventId,
 };
@@ -84,6 +84,64 @@ pub(crate) fn read_by_correlation_impl(
         events.push(row?);
     }
     Ok(events)
+}
+
+/// Bounded variant of `read_by_correlation_impl`. Orders by `id ASC` (32-byte BLOB
+/// lexicographic) rather than `timestamp_us` so the cursor predicate
+/// `id > last_seen_id` gives deterministic, exact resume.
+///
+/// Always includes at least one event even if its payload alone exceeds the byte budget.
+/// `resume_after_id` is decoded from `CursorInner::Correlation::last_seen_id`.
+pub(crate) fn read_by_correlation_bounded_impl(
+    conn: &Connection,
+    correlation_id: EventId,
+    resume_after_id: Option<[u8; 32]>,
+    max_results: Option<usize>,
+    max_bytes: Option<usize>,
+) -> Result<ReadOutcome<Vec<StoredEvent>>, Error> {
+    let corr_id_bytes = *correlation_id.as_bytes();
+    let resume_eid: Option<EventId> = resume_after_id.map(EventId::from_bytes);
+
+    // (?2 IS NULL OR id > ?2) — when resume_eid is None, rusqlite passes SQL NULL
+    // and the IS NULL branch passes, giving an unconstrained lower bound.
+    let sql = format!(
+        "SELECT {SELECT_COLS} FROM events \
+         WHERE correlation_id = ?1 AND (?2 IS NULL OR id > ?2) \
+         ORDER BY id ASC"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params![correlation_id, resume_eid], row_to_event)?;
+
+    let mut events: Vec<StoredEvent> = Vec::new();
+    let mut byte_count: usize = 0;
+
+    for row in rows {
+        let event = row?;
+        let event_bytes = event.payload.len();
+
+        let exceed_count = max_results.map_or(false, |n| events.len() >= n);
+        let exceed_bytes =
+            max_bytes.map_or(false, |b| !events.is_empty() && byte_count + event_bytes > b);
+
+        if exceed_count || exceed_bytes {
+            let last_seen_id = events.last().map(|e| *e.id.as_bytes()).unwrap_or([0u8; 32]);
+            let cursor = TruncationCursor::encode(&CursorInner::Correlation {
+                correlation_id: corr_id_bytes,
+                last_seen_id,
+            })?;
+            let reason = if exceed_count {
+                TruncationReason::ResultCount
+            } else {
+                TruncationReason::ByteSize
+            };
+            return Ok(ReadOutcome::Truncated { data: events, cursor, reason });
+        }
+
+        byte_count += event_bytes;
+        events.push(event);
+    }
+
+    Ok(ReadOutcome::Complete(events))
 }
 
 // ── walk_causation ────────────────────────────────────────────────────────────

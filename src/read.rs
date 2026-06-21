@@ -1,6 +1,6 @@
 use crate::{
     error::Error,
-    types::{EventId, ReadQuery, StoredEvent},
+    types::{CursorInner, EventId, ReadOutcome, ReadQuery, StoredEvent, TruncationCursor, TruncationReason},
 };
 use rusqlite::Connection;
 
@@ -133,4 +133,64 @@ pub(crate) fn read_by_external_id_impl(
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(e) => Err(Error::Sqlite(e)),
     }
+}
+
+/// Bounded variant of `read_range_impl`. Stops when `max_results` events have been
+/// collected or `max_bytes` of payload have accumulated. Always includes at least
+/// one event even if its payload alone exceeds the byte budget.
+///
+/// `resume_version` overrides `q.from_version` and is supplied by decoding a
+/// `TruncationCursor::Range` from the previous page.
+pub(crate) fn read_range_bounded_impl(
+    conn: &Connection,
+    q: &ReadQuery,
+    resume_version: Option<u64>,
+    max_results: Option<usize>,
+    max_bytes: Option<usize>,
+) -> Result<ReadOutcome<Vec<StoredEvent>>, Error> {
+    let start = resume_version.unwrap_or_else(|| q.from_version.unwrap_or(0));
+    let to = q.to_version.map(|v| v as i64).unwrap_or(i64::MAX);
+
+    let sql = format!(
+        "SELECT {SELECT_COLS} FROM events \
+         WHERE stream_id = ?1 AND branch = ?2 AND version >= ?3 AND version <= ?4 \
+         AND (?5 IS NULL OR event_type = ?5) \
+         ORDER BY version ASC"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(
+        rusqlite::params![q.stream_id, q.branch, start as i64, to, q.event_type_filter],
+        row_to_event,
+    )?;
+
+    let mut events: Vec<StoredEvent> = Vec::new();
+    let mut byte_count: usize = 0;
+
+    for row in rows {
+        let event = row?;
+        let event_bytes = event.payload.len();
+
+        let exceed_count = max_results.map_or(false, |n| events.len() >= n);
+        let exceed_bytes =
+            max_bytes.map_or(false, |b| !events.is_empty() && byte_count + event_bytes > b);
+
+        if exceed_count || exceed_bytes {
+            let cursor = TruncationCursor::encode(&CursorInner::Range {
+                stream_id: q.stream_id.clone(),
+                branch: q.branch.clone(),
+                next_version: event.version,
+            })?;
+            let reason = if exceed_count {
+                TruncationReason::ResultCount
+            } else {
+                TruncationReason::ByteSize
+            };
+            return Ok(ReadOutcome::Truncated { data: events, cursor, reason });
+        }
+
+        byte_count += event_bytes;
+        events.push(event);
+    }
+
+    Ok(ReadOutcome::Complete(events))
 }

@@ -17,13 +17,13 @@ use crate::{
         resolve_branch_chain, BranchSegment,
     },
     cross_stream::{
-        aggregate_impl, read_by_correlation_impl, walk_causation_impl, Aggregate, AggregateQuery,
-        WalkDirection,
+        aggregate_impl, read_by_correlation_bounded_impl, read_by_correlation_impl,
+        walk_causation_impl, Aggregate, AggregateQuery, WalkDirection,
     },
     cursors::{get_cursor_impl, set_cursor_impl},
     deletion::{purge_event_impl, shred_stream_impl},
     error::Error,
-    read::{read_batch_impl, read_by_external_id_impl, read_one_impl, read_range_impl},
+    read::{read_batch_impl, read_by_external_id_impl, read_one_impl, read_range_bounded_impl, read_range_impl},
     reducers::{BoxedReducer, DynReducer, Reducer, ReducerRegistry, ReducerState},
     schema::{bootstrap_meta, bootstrap_system_streams, run_migrations},
     snapshots::{
@@ -36,8 +36,9 @@ use crate::{
     },
     transforms::{apply_transforms, PayloadTransform, TransformEntry},
     types::{
-        Append, BranchInfo, CheckpointMode, CreateBranch, EncryptionMode, EventId, FirstOpenPolicy,
-        OpenOptions, ReadQuery, SnapshotInfo, SnapshotPolicy, StoredEvent, StreamInfo,
+        Append, BranchInfo, CheckpointMode, CreateBranch, CursorInner, EncryptionMode, EventId,
+        FirstOpenPolicy, OpenOptions, ReadOutcome, ReadQuery, SnapshotInfo, SnapshotPolicy,
+        StoredEvent, StreamInfo, TruncationCursor,
     },
     upcasters::{apply_upcaster, Upcaster, UpcasterRegistry},
     wal_watch::WalWatcher,
@@ -456,6 +457,61 @@ impl Store {
             .collect()
     }
 
+    /// Bounded variant of `read_range`. Stops at `max_results` events or `max_bytes`
+    /// of payload, whichever comes first. Always returns at least one event.
+    ///
+    /// Budget resolution (per-call takes precedence over store-level defaults):
+    /// - effective limit = `max_results` ?? `OpenOptions::default_max_results` ?? unbounded
+    /// - effective bytes = `max_bytes` ?? `OpenOptions::default_max_bytes` ?? unbounded
+    ///
+    /// Pass `resume` from a previous `ReadOutcome::Truncated` to continue a paged read.
+    pub fn read_range_bounded(
+        &self,
+        q: ReadQuery,
+        max_results: Option<usize>,
+        max_bytes: Option<usize>,
+        resume: Option<TruncationCursor>,
+    ) -> Result<ReadOutcome<Vec<StoredEvent>>, Error> {
+        let effective_results = max_results.or(self.inner.options.default_max_results);
+        let effective_bytes = max_bytes.or(self.inner.options.default_max_bytes);
+
+        let resume_version = match resume {
+            Some(cursor) => match cursor.decode()? {
+                CursorInner::Range { next_version, .. } => Some(next_version),
+                _ => return Err(Error::Internal("cursor type mismatch: expected Range".into())),
+            },
+            None => None,
+        };
+
+        let outcome = {
+            let conn = self.read_conn()?;
+            read_range_bounded_impl(&conn, &q, resume_version, effective_results, effective_bytes)?
+        };
+
+        let upcasters = self
+            .inner
+            .upcasters
+            .read()
+            .map_err(|_| Error::Internal("upcasters lock poisoned".into()))?;
+
+        match outcome {
+            ReadOutcome::Complete(events) => Ok(ReadOutcome::Complete(
+                events
+                    .into_iter()
+                    .map(|e| apply_upcaster(&upcasters, e))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+            ReadOutcome::Truncated { data, cursor, reason } => Ok(ReadOutcome::Truncated {
+                data: data
+                    .into_iter()
+                    .map(|e| apply_upcaster(&upcasters, e))
+                    .collect::<Result<Vec<_>, _>>()?,
+                cursor,
+                reason,
+            }),
+        }
+    }
+
     pub fn read_one(&self, id: EventId) -> Result<Option<StoredEvent>, Error> {
         let event = {
             let conn = self.read_conn()?;
@@ -541,6 +597,71 @@ impl Store {
             .into_iter()
             .map(|e| apply_upcaster(&upcasters, e))
             .collect()
+    }
+
+    /// Bounded variant of `read_by_correlation`. Orders by `id ASC` (BLOB lexicographic)
+    /// for deterministic resume — the cursor predicate is `id > last_seen_id`.
+    ///
+    /// Budget resolution (per-call takes precedence over store-level defaults):
+    /// - effective limit = `max_results` ?? `OpenOptions::default_max_results` ?? unbounded
+    /// - effective bytes = `max_bytes` ?? `OpenOptions::default_max_bytes` ?? unbounded
+    ///
+    /// Pass `resume` from a previous `ReadOutcome::Truncated` to continue a paged read.
+    pub fn read_by_correlation_bounded(
+        &self,
+        correlation_id: EventId,
+        max_results: Option<usize>,
+        max_bytes: Option<usize>,
+        resume: Option<TruncationCursor>,
+    ) -> Result<ReadOutcome<Vec<StoredEvent>>, Error> {
+        let effective_results = max_results.or(self.inner.options.default_max_results);
+        let effective_bytes = max_bytes.or(self.inner.options.default_max_bytes);
+
+        let resume_after_id = match resume {
+            Some(cursor) => match cursor.decode()? {
+                CursorInner::Correlation { last_seen_id, .. } => Some(last_seen_id),
+                _ => {
+                    return Err(Error::Internal(
+                        "cursor type mismatch: expected Correlation".into(),
+                    ))
+                }
+            },
+            None => None,
+        };
+
+        let outcome = {
+            let conn = self.read_conn()?;
+            read_by_correlation_bounded_impl(
+                &conn,
+                correlation_id,
+                resume_after_id,
+                effective_results,
+                effective_bytes,
+            )?
+        };
+
+        let upcasters = self
+            .inner
+            .upcasters
+            .read()
+            .map_err(|_| Error::Internal("upcasters lock poisoned".into()))?;
+
+        match outcome {
+            ReadOutcome::Complete(events) => Ok(ReadOutcome::Complete(
+                events
+                    .into_iter()
+                    .map(|e| apply_upcaster(&upcasters, e))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+            ReadOutcome::Truncated { data, cursor, reason } => Ok(ReadOutcome::Truncated {
+                data: data
+                    .into_iter()
+                    .map(|e| apply_upcaster(&upcasters, e))
+                    .collect::<Result<Vec<_>, _>>()?,
+                cursor,
+                reason,
+            }),
+        }
     }
 
     pub fn walk_causation(
@@ -1091,8 +1212,7 @@ impl Store {
     }
 
     /// Acquire a read connection and hold it for `hold_ms` milliseconds, then release.
-    /// Only available with the `test-helpers` feature; used to simulate pool exhaustion.
-    #[cfg(feature = "test-helpers")]
+    /// Test-only helper for simulating pool exhaustion; named with `_test_` prefix by convention.
     pub fn _test_hold_read_conn(&self, hold_ms: u64) {
         let _guard = self.read_conn().expect("acquire read conn for test");
         std::thread::sleep(std::time::Duration::from_millis(hold_ms));

@@ -106,3 +106,11 @@ path = "tests/similarity.rs"
 [[test]]
 name = "bounded_foundation"
 path = "tests/bounded_foundation.rs"
+
+[[test]]
+name = "bounded_reads"
+path = "tests/bounded_reads.rs"
+
+[[test]]
+name = "snapshot_policy"
+path = "tests/snapshot_policy.rs"

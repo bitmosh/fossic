@@ -367,7 +367,9 @@ pub(crate) enum CursorInner {
     /// Resume point for a `read_by_correlation`-style bounded read.
     Correlation {
         correlation_id: [u8; 32],
-        after_timestamp_us: i64,
+        /// The `id` of the last event returned in the previous page.
+        /// Resume predicate: `id > last_seen_id ORDER BY id ASC`.
+        last_seen_id: [u8; 32],
     },
     /// Resume point for a `walk_causation`-style bounded read.
     Causation {
