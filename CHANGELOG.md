@@ -5,6 +5,26 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.8.0 — 2026-06-21
+
+### D2 closed: fossic-similarity-hnsw substrate complete
+
+D2 ships the first concrete SimilaritySearchProvider implementation as a sibling crate, enabling semantic search at substrate level without the in-memory NumPy ceiling that limited prior consumer implementations.
+
+Shipped across v1.7.0 through v1.7.4:
+
+- v1.7.0: Foundation — sibling crate scaffold, SystemStreamWriter and BackgroundExecutor visibility opened for substrate extensions, TaskKind::Custom variant added
+- v1.7.1: HNSW core implementation with index/query, stream-pattern filtering, fudge-factor candidate expansion
+- v1.7.2: Atomic disk persistence with corrupt-file recovery, two-file storage format (.hnsw.data + .hnsw.graph + mappings.bin)
+- v1.7.3: Background save scheduling via TaskKind::Custom, storm-prevention via optimistic timestamp, Weak<HnswProvider> drop semantics
+- v1.7.4: Python binding (PyHnswProvider + SimilarityQuery), full README, sibling crate documentation
+
+Substrate now ships with three SystemStreamWriter instances internally plus one new pattern for sibling-crate emissions (HnswProvider's lazy Mutex<Option<SystemStreamWriter>>), validating the substrate extension pattern documented in SUBSTRATE_EXTENSION_PATTERNS.md §1.
+
+Cerebra and other future consumers can now register HnswProvider at Store::open via OpenOptions.similarity_provider to enable substrate-level semantic search.
+
+---
+
 ## v1.7.4 — 2026-06-21 — D2 Python binding: HnswProvider + docs
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.7.4.md`
