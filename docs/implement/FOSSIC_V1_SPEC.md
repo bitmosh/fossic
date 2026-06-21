@@ -904,6 +904,8 @@ Fossic reserves the `_fossic/system` stream for internal bookkeeping events. Con
 | `SubscriptionDegraded` | PostCommit subscription queue overflow | `subscription_id`, `stream_id`, `cursor_version` |
 | `ShreddedStreamMarker` | Successful `shred_stream` call (§9.2) | `stream_id`, `shredded_at`, `reason`, `event_count_at_shred`, `version_at_shred` |
 | `Purged` | Successful `purge_event` call (§9.3) | `event_id_purged`, `original_event_type`, `original_stream_id`, `original_timestamp_us`, `reason`, `purged_at_us`, `purged_by` |
+| `ProjectRegistered` | `store.emit_project_registered(...)` — on relay startup or first hub-direct write | `source_store`, `local_store_path`, `subscribe_pattern`, `project_description`. `indexed_tags={"source_store":"<name>"}` |
+| `RelayHeartbeat` | `store.emit_relay_heartbeat(...)` — emitted by `RelayAgent` heartbeat thread at `heartbeat_interval_s` | `source_store`, `last_event_version`, `queue_lag`, `uptime_us`. `indexed_tags={"source_store":"<name>"}` |
 
 **Dispatcher skip rule:** the PostCommit dispatcher skips events on streams matching `_fossic/` when deciding which subscriptions to fan out to, preventing a `SubscriptionDegraded` event from triggering a degraded subscription and causing an infinite loop.
 

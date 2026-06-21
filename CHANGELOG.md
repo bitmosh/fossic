@@ -5,6 +5,23 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.4.1 — 2026-06-21 — Documentation: project registration for federated deployments
+
+**Pass report:** `docs/aseptic/blast-radius/pass-1.4.1.md`
+
+### Changed
+
+- `README.md` — new `## Project Registration (for federated deployments)` section:
+  manual registration spec table, `RelayConfig` heartbeat example, indexed_tags note,
+  forward-link to §15 (fossic-coordinator) and §9.4 (event schema).
+- `docs/implement/FOSSIC_V1_SPEC.md §9.4` — `ProjectRegistered` and `RelayHeartbeat`
+  added to the `_fossic/system` event type table with trigger, payload fields, and
+  `indexed_tags` schema. No new section added — the existing event-type table is the
+  canonical home. A full federation protocol section is deferred as CP-T2-2 (future
+  fossic-coordinator crate work).
+
+---
+
 ## v1.4.0 — 2026-06-21 — Phase 8: Hub Coordinator Preparation
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.4.0.md`

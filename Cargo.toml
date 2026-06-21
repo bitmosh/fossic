@@ -15,7 +15,7 @@ tempfile          = "3"
 
 [package]
 name = "fossic"
-version = "1.4.0"
+version = "1.4.1"
 edition = "2021"
 description = "Local-first event sourcing library with content-addressed event identity"
 license = "MIT OR Apache-2.0"

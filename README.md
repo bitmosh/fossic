@@ -41,6 +41,52 @@ let event_id = store.append(Append {
 - **Branches:** lightweight pointer records — no event copying on branch creation.
 - **Crypto-shredding:** per-stream DEKs allow GDPR-compliant deletion by destroying the key.
 
+## Project Registration (for federated deployments)
+
+Projects participating in a federated hub announce themselves by emitting
+`ProjectRegistered` events to the `_fossic/system` stream. The canonical
+`RelayAgent` in `fossic-py` does this automatically on startup. Projects
+performing hub-direct writes (without a relay agent) should call
+`store.emit_project_registered(...)` once before their first write.
+
+```python
+store.emit_project_registered(
+    source_store="my-project",           # stable project identifier
+    local_store_path="/path/to/store.db",
+    subscribe_pattern="my-project/**",   # glob relayed to hub
+    project_description="Human-readable description",
+)
+```
+
+**Manual registration fields:**
+
+| Field | Type | Description |
+|---|---|---|
+| `source_store` | `str` | Stable project identifier; used as hub stream namespace and `indexed_tags["source_store"]` on every relayed event. Changing this breaks hub stream names and causation routing. |
+| `local_store_path` | `str` | Absolute path to this project's local fossic store file. |
+| `subscribe_pattern` | `str` | Glob passed to `store.subscribe()` by the relay agent (e.g. `"cerebra/**"`). |
+| `project_description` | `str` | Optional human-readable label; included in the event payload for coordinator display. |
+
+`RelayAgent` also emits `RelayHeartbeat` events at a configurable interval
+(default 5 s) so a hub coordinator can detect stalled relays:
+
+```python
+config = RelayConfig(
+    local_store_path="/path/to/store.db",
+    hub_store_path="/path/to/hub.db",
+    source_prefix="my-project",
+    subscribe_pattern="my-project/**",
+    heartbeat_interval_s=5.0,         # default
+    project_description="My project",
+)
+RelayAgent(config).run()
+```
+
+Both event types are written to `_fossic/system` with
+`indexed_tags={"source_store":"<name>"}` so a future hub coordinator crate
+(`fossic-coordinator`, see §15 of `docs/implement/FOSSIC_V1_SPEC.md`) can
+efficiently filter by project. See §9.4 of the spec for the full event schema.
+
 ## Threading model
 
 Fossic uses `std::thread` and `crossbeam-channel` — no async runtime required. See §14 of `docs/implement/FOSSIC_V1_SPEC.md` for the full threading model.
