@@ -52,6 +52,108 @@ try {
 }
 ```
 
+## Bounded reads and streaming iterators
+
+### Why bounded variants exist
+
+`readRange` loads all matching events into memory. The bounded variants accept a `maxResults` and/or `maxBytes` budget and return a `ReadOutcome` discriminated union — callers know immediately whether the result set is complete or was cut short, and can resume from the returned cursor.
+
+### ReadOutcome
+
+```typescript
+import { Store, SamplingMode, TruncationCursor } from 'fossic'
+
+const outcome = await store.readRangeBounded(
+    { streamId: 'cerebra/lattice/session_42' },  // ReadQuery
+    1000,     // maxResults
+)
+
+if (outcome.kind === 'complete') {
+    processAll(outcome.results)
+} else {
+    // outcome.kind === 'truncated'
+    processPage(outcome.results)
+    // outcome.reason: 'result_count' | 'byte_size'
+    // outcome.nextCursor: TruncationCursor | null
+
+    if (outcome.nextCursor) {
+        const nextPage = await store.readRangeBounded(
+            { streamId: 'cerebra/lattice/session_42' },
+            1000,
+            undefined,           // maxBytes
+            outcome.nextCursor,  // cursor
+        )
+    }
+}
+```
+
+### TruncationCursor
+
+Cursors are opaque. Pass them back to the next bounded call. Serialize to `Buffer` and reconstruct:
+
+```typescript
+// Serialize for persistence:
+const buf = cursor.toBytes()  // Buffer
+
+// Restore:
+const cursor = TruncationCursor.fromBytes(buf)
+const nextPage = await store.readRangeBounded(query, 1000, undefined, cursor)
+```
+
+### SamplingMode
+
+```typescript
+SamplingMode.exhaustive()                    // Full BFS (default)
+SamplingMode.breadthFirst(50)                // BFS capped at 50 nodes/level
+SamplingMode.adaptive(200)                   // Adaptive: approaches 200 total
+```
+
+### Streaming iterators
+
+Each `rawNext()` call advances the Rust iterator one step and releases the pool connection before resolving. Use `for await`:
+
+```typescript
+for await (const event of store.readRangeIter({ streamId: 'cerebra/lattice/session_42' })) {
+    process(event)
+}
+
+for await (const event of store.walkCausationIter(
+    rootId,
+    'forward',
+    100,                               // maxDepth
+    SamplingMode.exhaustive(),
+)) {
+    process(event)
+}
+```
+
+Iterator types implement `AsyncIterable<StoredEvent>` and `Symbol.asyncDispose` (TC39 explicit resource management).
+
+### Bounded methods on Store
+
+```typescript
+store.readRangeBounded(query, maxResults?, maxBytes?, cursor?) → Promise<ReadOutcome>
+store.readByCorrelationBounded(correlationId, maxResults?, maxBytes?, cursor?) → Promise<ReadOutcome>
+store.walkCausationBounded(start, direction, maxDepth?, sampling?, maxResults?, maxBytes?, cursor?) → Promise<ReadOutcome>
+
+store.readRangeIter(query) → FossicRangeIter           // AsyncIterable<StoredEvent>
+store.readByCorrelationIter(correlationId) → FossicCorrelationIter
+store.walkCausationIter(start, direction, maxDepth?, sampling?) → FossicCausationIter
+```
+
+### OpenOptions defaults
+
+`defaultMaxResults` and `defaultMaxBytes` are exposed in the Node binding from v1.1.7:
+
+```typescript
+const store = Store.open('store.db', {
+    defaultMaxResults: 10_000,
+    defaultMaxBytes: 50 * 1024 * 1024,
+})
+```
+
+Per-call limits take precedence when provided. These are the only binding where store-level defaults are currently exposed; Python and Tauri will follow.
+
 ## Type notes
 
 - `version` and `EventId` cross the napi boundary as `bigint` and `Uint8Array` respectively.
