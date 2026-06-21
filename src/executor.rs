@@ -307,7 +307,27 @@ fn execute_task(ops: &dyn StoreOps, task: &BacklogTask) {
                 eprintln!("[WARN fossic] fossic-bg: TakeSnapshot({stream_id}, {branch}) failed: {e}");
             }
         }
-        TaskKind::Custom(f) => f(),
+        TaskKind::Custom(f) => {
+            let f = Arc::clone(f);
+            // AssertUnwindSafe: Custom closures are not required to be UnwindSafe.
+            // Partially-mutated state after a panic is acceptable — Custom tasks are
+            // best-effort by design. Imposing UnwindSafe as a trait bound would break
+            // the existing TaskKind::Custom API (SR-10 A-6, B-3 resolution).
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || f()));
+            if let Err(panic_val) = result {
+                let msg = if let Some(s) = panic_val.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_val.downcast_ref::<String>() {
+                    s.clone()
+                } else {
+                    "<non-string panic payload>".to_string()
+                };
+                eprintln!(
+                    "[WARN fossic] fossic-bg: TaskKind::Custom panicked: {msg}; \
+                     task discarded, executor continues",
+                );
+            }
+        }
     }
 }
 
