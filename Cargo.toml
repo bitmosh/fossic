@@ -114,3 +114,7 @@ path = "tests/bounded_reads.rs"
 [[test]]
 name = "snapshot_policy"
 path = "tests/snapshot_policy.rs"
+
+[[test]]
+name = "causation_bounded"
+path = "tests/causation_bounded.rs"

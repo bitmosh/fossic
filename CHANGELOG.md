@@ -85,6 +85,39 @@ writes from separate connections without contention.
 
 ---
 
+## v1.1.3 — 2026-06-21 — Bounded Resource API: walk_causation_bounded with sampling modes
+
+**Pass report:** `docs/aseptic/blast-radius/pass-1.1.3.md`
+
+### Added
+
+- `Store::walk_causation_bounded(start, direction, max_depth, sampling, max_results, max_bytes, resume)`
+  — bounded BFS causation walk. Cuts at BFS level boundaries (whole levels always yielded);
+  first level is always returned regardless of budget (at-least-one guarantee).
+- `walk_causation_bounded_impl` in `src/cross_stream.rs` — Rust-side BFS loop (one SQL query
+  per level) replacing the recursive CTE approach, enabling clean level-boundary cut points.
+  `seen: HashSet<[u8;32]>` deduplicates within a call; resume initialises `seen` from the
+  cursor frontier to prevent re-yielding via convergent paths.
+- `bfs_expand_forward` / `bfs_expand_backward` / `expand_frontier` — one-level BFS helpers;
+  `ORDER BY id ASC` throughout for deterministic ordering.
+- `apply_bfs_sampling(events, sampling, max_depth)` — sampling truncation at level boundaries:
+  `Exhaustive` = no truncation; `BreadthFirst { max_per_level }` = take first N by `id ASC`;
+  `Adaptive { target_count }` = `max_per_level = max(1, target_count / max_depth)`.
+- `CursorInner::Causation` corrected: `{ frontier: Vec<[u8;32]>, direction: u8, depth_consumed: u32 }`.
+  Previous v1.1.0 design (`start_id, depth, last_seen_id`) was wrong for frontier-based BFS.
+  No external call sites; safe to correct before any consumer exists.
+- `tests/causation_bounded.rs` — 14 tests: forward/backward/both walks, result-count and
+  byte-budget truncation, at-least-one guarantee, full pagination, max_depth, empty BFS,
+  BreadthFirst and Adaptive sampling, store-level default fallback, cursor type mismatch,
+  direction mismatch errors.
+
+### Budget resolution
+
+Per-call arg → `OpenOptions::default_max_results` / `default_max_bytes` → unbounded.
+Resolution in the public `Store` method; impl receives already-resolved `Option<usize>` values.
+
+---
+
 ## v1.1.2 — 2026-06-20 — Bounded Resource API: read_range_bounded + read_by_correlation_bounded
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.1.2.md`

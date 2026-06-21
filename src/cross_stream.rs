@@ -1,11 +1,12 @@
 use crate::{
     error::Error,
     read::{row_to_event, PREFIXED_SELECT_COLS, SELECT_COLS},
-    types::{CursorInner, ReadOutcome, StoredEvent, TruncationCursor, TruncationReason},
+    types::{CursorInner, ReadOutcome, SamplingMode, StoredEvent, TruncationCursor, TruncationReason},
     upcasters::{apply_upcaster, UpcasterRegistry},
     EventId,
 };
 use rusqlite::Connection;
+use std::collections::HashSet;
 
 // ── WalkDirection ─────────────────────────────────────────────────────────────
 
@@ -249,6 +250,199 @@ fn walk_backward(
         events.push(row?);
     }
     Ok(events)
+}
+
+// ── walk_causation_bounded ────────────────────────────────────────────────────
+
+/// Fetch all events whose `causation_id` is one of the `frontier` IDs — one BFS
+/// level forward (children). Results ordered by `id ASC` for determinism.
+fn bfs_expand_forward(
+    conn: &Connection,
+    frontier: &[[u8; 32]],
+) -> Result<Vec<StoredEvent>, Error> {
+    if frontier.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = (1..=frontier.len())
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT {SELECT_COLS} FROM events \
+         WHERE causation_id IN ({placeholders}) ORDER BY id ASC"
+    );
+    let eids: Vec<EventId> = frontier.iter().map(|b| EventId::from_bytes(*b)).collect();
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(eids.iter()), row_to_event)?;
+    let mut events = Vec::new();
+    for row in rows {
+        events.push(row?);
+    }
+    Ok(events)
+}
+
+/// Fetch the parent events of the `frontier` set — one BFS level backward.
+/// Each parent is the event whose `id` matches a frontier event's `causation_id`.
+/// Results ordered by `id ASC` for determinism.
+fn bfs_expand_backward(
+    conn: &Connection,
+    frontier: &[[u8; 32]],
+) -> Result<Vec<StoredEvent>, Error> {
+    if frontier.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = (1..=frontier.len())
+        .map(|i| format!("?{i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT {SELECT_COLS} FROM events \
+         WHERE id IN ( \
+             SELECT causation_id FROM events \
+             WHERE id IN ({placeholders}) AND causation_id IS NOT NULL \
+         ) ORDER BY id ASC"
+    );
+    let eids: Vec<EventId> = frontier.iter().map(|b| EventId::from_bytes(*b)).collect();
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(eids.iter()), row_to_event)?;
+    let mut events = Vec::new();
+    for row in rows {
+        events.push(row?);
+    }
+    Ok(events)
+}
+
+/// Expand `frontier` in the requested direction, returning the next BFS level
+/// deduplicated and sorted by `id ASC`.
+fn expand_frontier(
+    conn: &Connection,
+    frontier: &[[u8; 32]],
+    direction: &WalkDirection,
+) -> Result<Vec<StoredEvent>, Error> {
+    match direction {
+        WalkDirection::Forward => bfs_expand_forward(conn, frontier),
+        WalkDirection::Backward => bfs_expand_backward(conn, frontier),
+        WalkDirection::Both => {
+            let fwd = bfs_expand_forward(conn, frontier)?;
+            let bwd = bfs_expand_backward(conn, frontier)?;
+            let fwd_ids: HashSet<[u8; 32]> = fwd.iter().map(|e| *e.id.as_bytes()).collect();
+            let mut combined = fwd;
+            for e in bwd {
+                if !fwd_ids.contains(e.id.as_bytes()) {
+                    combined.push(e);
+                }
+            }
+            combined.sort_by(|a, b| a.id.as_bytes().cmp(b.id.as_bytes()));
+            Ok(combined)
+        }
+    }
+}
+
+/// Truncate a level's events to the sampling budget. Events must already be
+/// sorted by `id ASC` (expand_frontier guarantees this). Always stable with
+/// respect to id order — deterministic, not random.
+fn apply_bfs_sampling(
+    mut events: Vec<StoredEvent>,
+    sampling: SamplingMode,
+    max_depth: usize,
+) -> Vec<StoredEvent> {
+    let max_per_level = match sampling {
+        SamplingMode::Exhaustive => return events,
+        SamplingMode::BreadthFirst { max_per_level } => max_per_level,
+        // Adaptive: distribute target_count evenly across max_depth levels.
+        SamplingMode::Adaptive { target_count } => (target_count / max_depth.max(1)).max(1),
+    };
+    events.truncate(max_per_level);
+    events
+}
+
+/// Bounded BFS causation walk. Cuts at level boundaries — always yields whole
+/// BFS levels; the at-least-one guarantee means the first level is yielded even
+/// if it alone exceeds the budget.
+///
+/// `resume` = `(frontier_ids, depth_consumed)` decoded from a `CursorInner::Causation`.
+/// `frontier_ids` are the last-yielded level's event IDs; expand them to get the next level.
+pub(crate) fn walk_causation_bounded_impl(
+    conn: &Connection,
+    start: EventId,
+    direction: &WalkDirection,
+    max_depth: usize,
+    sampling: SamplingMode,
+    resume: Option<(Vec<[u8; 32]>, u32)>,
+    max_results: Option<usize>,
+    max_bytes: Option<usize>,
+) -> Result<ReadOutcome<Vec<StoredEvent>>, Error> {
+    let dir_byte: u8 = match direction {
+        WalkDirection::Forward => 0,
+        WalkDirection::Backward => 1,
+        WalkDirection::Both => 2,
+    };
+
+    // Initialize frontier and seen-id set.
+    // `seen` prevents re-yielding nodes already returned (within this call).
+    let (mut current_frontier, start_depth, mut seen) = match resume {
+        Some((frontier, depth_consumed)) => {
+            // Frontier IDs were already yielded; mark them seen so they aren't re-yielded
+            // if the graph has convergent paths.
+            let seen: HashSet<[u8; 32]> = frontier.iter().copied().collect();
+            (frontier, (depth_consumed as usize) + 1, seen)
+        }
+        None => {
+            let start_bytes = *start.as_bytes();
+            let mut seen = HashSet::new();
+            seen.insert(start_bytes);
+            (vec![start_bytes], 1_usize, seen)
+        }
+    };
+
+    let mut results: Vec<StoredEvent> = Vec::new();
+    let mut byte_count: usize = 0;
+    let mut depth = start_depth;
+
+    while depth <= max_depth && !current_frontier.is_empty() {
+        let mut level_events = expand_frontier(conn, &current_frontier, direction)?;
+
+        // Dedup against already-seen nodes (handles convergent paths and resume).
+        level_events.retain(|e| !seen.contains(e.id.as_bytes()));
+
+        level_events = apply_bfs_sampling(level_events, sampling, max_depth);
+
+        if level_events.is_empty() {
+            break;
+        }
+
+        let level_count = level_events.len();
+        let level_bytes: usize = level_events.iter().map(|e| e.payload.len()).sum();
+
+        let would_exceed_count = max_results.map_or(false, |n| results.len() + level_count > n);
+        let would_exceed_bytes = max_bytes.map_or(false, |b| byte_count + level_bytes > b);
+
+        // Cut before this level only if we already have results (at-least-one guarantee).
+        if (would_exceed_count || would_exceed_bytes) && !results.is_empty() {
+            let reason = if would_exceed_count {
+                TruncationReason::ResultCount
+            } else {
+                TruncationReason::ByteSize
+            };
+            let cursor = TruncationCursor::encode(&CursorInner::Causation {
+                frontier: current_frontier,
+                direction: dir_byte,
+                depth_consumed: (depth - 1) as u32,
+            })?;
+            return Ok(ReadOutcome::Truncated { data: results, cursor, reason });
+        }
+
+        // Yield this level.
+        for e in &level_events {
+            seen.insert(*e.id.as_bytes());
+        }
+        byte_count += level_bytes;
+        current_frontier = level_events.iter().map(|e| *e.id.as_bytes()).collect();
+        results.extend(level_events);
+        depth += 1;
+    }
+
+    Ok(ReadOutcome::Complete(results))
 }
 
 // ── aggregate ─────────────────────────────────────────────────────────────────
