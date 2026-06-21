@@ -5,6 +5,18 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.8.1 — 2026-06-21
+
+### Panic isolation hardening
+
+Closes three SR-10 findings via catch_unwind discipline at substrate boundaries. Background executor, reducer application, and synchronous subscription dispatch all become panic-resilient by default.
+
+- TaskKind::Custom panics no longer kill the background executor permanently (SR-10 A-6). Wrapped with AssertUnwindSafe; panicking tasks log to stderr and the executor continues. All subsequent scheduled tasks run normally.
+- Reducer apply panics no longer propagate to the calling application thread (SR-10 A-11). New error variant Error::ReducerPanicked carries stream_id, reducer_name, event_id_hex, and panic_message. read_state and snapshot paths return the structured error rather than unwinding.
+- Synchronous subscriber panics now emit SubscriptionDegraded events to _fossic/system (SR-10 A-5). Closes the asymmetry with PostCommit overflow, which already emitted the system event. Consumers reading _fossic/system now see all subscription health transitions, not just PostCommit ones.
+
+---
+
 ## v1.8.0 — 2026-06-21
 
 ### D2 closed: fossic-similarity-hnsw substrate complete
