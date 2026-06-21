@@ -14,14 +14,14 @@ const SYSTEM_BRANCH: &str = "main";
 /// Separate from the store write mutex and read pool — the dispatcher thread
 /// holds this exclusively so system events never contend with user appends.
 /// All emission methods are best-effort: errors are logged and silently dropped.
-pub(crate) struct SystemStreamWriter {
+pub struct SystemStreamWriter {
     conn: Connection,
 }
 
 impl SystemStreamWriter {
     /// Open a dedicated connection to `db_path`. Returns `None` if the connection
     /// fails (with a WARN log); callers must tolerate the absence of a writer.
-    pub(crate) fn new(db_path: &Path) -> Option<Self> {
+    pub fn new(db_path: &Path) -> Option<Self> {
         match Connection::open(db_path) {
             Ok(conn) => {
                 let _ = conn.execute_batch(
@@ -39,7 +39,7 @@ impl SystemStreamWriter {
     /// Write one event to `_fossic/system`. The event_id is derived internally
     /// via CCE — callers do not supply it. `type_version` is always 1; no
     /// causation_id is set. Errors are silently dropped (best-effort delivery).
-    pub(crate) fn emit(
+    pub fn emit(
         &mut self,
         event_type: &str,
         payload: &serde_json::Value,

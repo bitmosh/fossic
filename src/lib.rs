@@ -28,6 +28,7 @@ pub use cross_stream::{Aggregate, AggregateQuery, WalkDirection};
 pub use error::{CceError, Error};
 pub use reducers::{DynReducer, Reducer, ReducerState};
 pub use similarity::{SimilarityHit, SimilarityQuery, SimilaritySearchProvider};
+pub use system_stream::SystemStreamWriter;
 pub use store::{CausationIter, CorrelationIter, RangeIter, Store};
 pub use subscriptions::{SubscribeQuery, SubscriptionHandle, SubscriptionHandler, SubscriptionMode};
 pub use transforms::PayloadTransform;
