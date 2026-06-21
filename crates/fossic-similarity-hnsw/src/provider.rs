@@ -2,9 +2,13 @@ use std::{
     collections::HashMap,
     io::{Read as IoRead, Write as IoWrite},
     path::PathBuf,
+    sync::atomic::{AtomicBool, Ordering},
 };
 
-use fossic::{Error, EventId, SimilarityHit, SimilarityQuery, SimilaritySearchProvider, SystemStreamWriter};
+use fossic::{
+    BacklogTask, Error, EventId, SimilarityHit, SimilarityQuery, SimilaritySearchProvider, Store,
+    SystemStreamWriter, TaskKind, TaskPriority,
+};
 use hnsw_rs::{
     anndists::dist::distances::{DistCosine, DistDot, DistL2},
     hnsw::Hnsw,
@@ -169,6 +173,13 @@ pub struct HnswProvider {
     pub(crate) index_dir: PathBuf,
     pub(crate) inner: Mutex<Option<HnswInner>>,
     pub(crate) system_writer: Mutex<Option<SystemStreamWriter>>,
+    /// Set by every `index` / `index_with_stream_id` call; cleared by a
+    /// successful `save_to_disk`. Used by `schedule_save` to skip no-op saves.
+    dirty: AtomicBool,
+    /// Optimistic storm-prevention flag. Set at `schedule_save` time (not at
+    /// execution time) per §3 of SUBSTRATE_EXTENSION_PATTERNS. Cleared at the
+    /// start of the save closure so future schedules can queue again.
+    save_pending: AtomicBool,
 }
 
 impl HnswProvider {
@@ -198,6 +209,8 @@ impl HnswProvider {
             index_dir,
             inner: Mutex::new(None),
             system_writer: Mutex::new(None),
+            dirty: AtomicBool::new(false),
+            save_pending: AtomicBool::new(false),
         };
 
         provider.try_load_or_init()?;
@@ -381,29 +394,30 @@ impl HnswProvider {
     /// format. Both files are treated as a unit for save/load and cleanup.
     pub fn save_to_disk(&self) -> Result<(), HnswError> {
         let guard = self.inner.lock();
-        match guard.as_ref() {
-            None => {
-                // Not yet initialized — nothing to save.
-                return Ok(());
-            }
+        let result = match guard.as_ref() {
+            None => Ok(()), // not yet initialized — nothing to save
             Some(inner) => {
                 if inner.next_id == 0 {
-                    // Empty index — write valid empty mappings so load knows it's valid.
-                    return self.save_empty_mappings();
-                }
-                // Save HNSW graph files.
-                if let Err(e) = inner.index.dump(&self.index_dir, &self.index_basename()) {
-                    self.cleanup_index_files();
-                    return Err(e);
-                }
-                // Save mappings.
-                if let Err(e) = self.save_mappings(inner) {
-                    self.cleanup_index_files();
-                    return Err(e);
+                    // Empty index: write valid empty mappings so load knows it's valid.
+                    self.save_empty_mappings()
+                } else {
+                    // Save HNSW graph files first, then mappings.
+                    if let Err(e) = inner.index.dump(&self.index_dir, &self.index_basename()) {
+                        self.cleanup_index_files();
+                        return Err(e);
+                    }
+                    if let Err(e) = self.save_mappings(inner) {
+                        self.cleanup_index_files();
+                        return Err(e);
+                    }
+                    Ok(())
                 }
             }
+        };
+        if result.is_ok() {
+            self.dirty.store(false, Ordering::Release);
         }
-        Ok(())
+        result
     }
 
     /// Delete all three index files, ignoring errors (best-effort cleanup).
@@ -428,6 +442,59 @@ impl HnswProvider {
         self.len() == 0
     }
 
+    /// Whether the in-memory index has unsaved changes.
+    pub fn is_dirty(&self) -> bool {
+        self.dirty.load(Ordering::Acquire)
+    }
+
+    /// Whether a background save is already pending execution.
+    pub fn is_save_pending(&self) -> bool {
+        self.save_pending.load(Ordering::Acquire)
+    }
+
+    /// Schedule a deferred `save_to_disk` via the store's background executor.
+    ///
+    /// No-op when `dirty` is false or when a save is already pending. The
+    /// pending flag is set at schedule time (not at execution time) — the
+    /// "optimistic stamp" pattern from SUBSTRATE_EXTENSION_PATTERNS §3 —
+    /// preventing storm-scheduling when `index` is called in a hot loop.
+    ///
+    /// The closure captures a `Weak<HnswProvider>`. If the caller drops the
+    /// last `Arc<HnswProvider>` before the quiescent window opens, the Weak
+    /// upgrade fails and no save occurs. In-memory state indexed since the
+    /// last `save_to_disk` is lost. This is by design: `persist_on_drop` is
+    /// not supported for `Custom` tasks. Deviation from brief §1: method takes
+    /// `&Store` instead of `&BackgroundExecutor` because `BackgroundExecutor::spawn`
+    /// is `pub(crate)`. Documented as **CP-D2-3**.
+    pub fn schedule_save(provider: std::sync::Arc<Self>, store: &Store, priority: TaskPriority) {
+        if !provider.dirty.load(Ordering::Acquire) {
+            return;
+        }
+        // Optimistic stamp: set save_pending BEFORE scheduling (§3 discipline).
+        // swap returns the old value — if true, a save is already pending.
+        if provider.save_pending.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let provider_weak = std::sync::Arc::downgrade(&provider);
+        store.schedule_task(BacklogTask {
+            priority,
+            deadline_us: fossic_now_us() + 5_000_000,
+            persist_on_drop: false,
+            kind: TaskKind::Custom(std::sync::Arc::new(move || {
+                let Some(p) = provider_weak.upgrade() else { return };
+                // Clear save_pending first so concurrent callers can re-queue
+                // while this save is in progress.
+                p.save_pending.store(false, Ordering::Release);
+                if p.dirty.load(Ordering::Acquire) {
+                    if let Err(e) = p.save_to_disk() {
+                        eprintln!("[WARN fossic-hnsw] background save failed: {e}");
+                    }
+                }
+            })),
+            recurring_interval: None,
+        });
+    }
+
     /// Index an event alongside its `stream_id` for stream-pattern filtering.
     ///
     /// Prefer this over the trait's `index` method when `SimilarityQuery`s
@@ -450,6 +517,7 @@ impl HnswProvider {
         inner.usize_to_event_id.push(event_id);
         inner.event_id_to_stream_id.insert(event_id, stream_id.to_string());
         inner.next_id += 1;
+        self.dirty.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -496,6 +564,7 @@ impl SimilaritySearchProvider for HnswProvider {
         // stream_id not available via trait signature — see CP-D2-2 and
         // index_with_stream_id for stream-pattern-filterable indexing.
         inner.next_id += 1;
+        self.dirty.store(true, Ordering::Release);
         Ok(())
     }
 

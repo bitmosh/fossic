@@ -6,7 +6,7 @@ Audience: authors of sibling crates (`fossic-similarity-hnsw`, future `fossic-*`
 
 Every claim below is source-verified against the current tree. File:line citations are included so you can check the live code rather than trusting this document at version drift.
 
-*Last updated: 2026-06-21. Substrate version: v1.7.1.*
+*Last updated: 2026-06-21. Substrate version: v1.7.3.*
 
 ---
 
@@ -107,28 +107,32 @@ When your extension needs deferred or recurring background work: saving an HNSW 
 ### The pattern
 
 ```rust
-use fossic::{BackgroundExecutor, BacklogTask, TaskKind, TaskPriority};
-use std::{sync::Arc, time::Duration};
+use fossic::{BacklogTask, Store, TaskKind, TaskPriority};
+use std::sync::Arc;
 
-fn schedule_save(executor: &BackgroundExecutor, provider: Arc<MyProvider>) {
-    executor.schedule(BacklogTask {
-        priority: TaskPriority::Low,
+/// Associate function style: takes Arc<MyProvider> to allow Weak capture.
+/// See CP-D2-3 for why this takes &Store instead of &BackgroundExecutor.
+fn schedule_save(provider: Arc<MyProvider>, store: &Store, priority: TaskPriority) {
+    let provider_weak = Arc::downgrade(&provider);
+    store.schedule_task(BacklogTask {
+        priority,
         deadline_us: fossic_now_us() + 5_000_000, // 5s from now
         persist_on_drop: false,    // Custom tasks: always false
         kind: TaskKind::Custom(Arc::new(move || {
-            // Capture Arc<MyProvider> at scheduling time.
+            // Upgrade the Weak — if the provider was dropped, skip.
+            let Some(p) = provider_weak.upgrade() else { return };
             // The closure must be Fn (not FnOnce) — it may be re-queued
             // for recurring tasks.
-            if let Err(e) = provider.save_to_disk() {
+            if let Err(e) = p.save_to_disk() {
                 eprintln!("[WARN] save_to_disk failed: {e}");
             }
         })),
-        recurring_interval: Some(Duration::from_secs(30)), // None for one-shot
+        recurring_interval: None, // one-shot; use Some(Duration) for recurring
     });
 }
 ```
 
-### API surface (verified at v1.7.1)
+### API surface (verified at v1.7.3)
 
 ```rust
 // src/executor.rs:44
@@ -138,7 +142,7 @@ pub enum TaskKind {
     Custom(std::sync::Arc<dyn Fn() + Send + Sync + 'static>),
 }
 
-// src/executor.rs:59,188
+// src/executor.rs:59
 pub struct BacklogTask {
     pub priority: TaskPriority,
     pub deadline_us: i64,         // micros since Unix epoch
@@ -147,10 +151,14 @@ pub struct BacklogTask {
     pub recurring_interval: Option<Duration>,
 }
 
-impl BackgroundExecutor {
-    pub fn schedule(&self, task: BacklogTask) { ... }
-    // spawn is pub(crate) — sibling crates do not call it
+// src/store.rs — scheduling surface for external crates (v1.7.3+)
+impl Store {
+    // Routes to the internal BackgroundExecutor. No-op if executor absent.
+    pub fn schedule_task(&self, task: BacklogTask) { ... }
 }
+
+// BackgroundExecutor::spawn is pub(crate) — sibling crates cannot create
+// an executor directly. Use Store::schedule_task instead. See CP-D2-3.
 ```
 
 ### Why Arc<dyn Fn()> not Box<dyn FnOnce(&Store)>
@@ -331,20 +339,21 @@ pub(crate) trait StoreOps: Send + Sync + 'static {
 
 `BackgroundExecutor::spawn` takes `Weak<dyn StoreOps>`. `StoreOps` is implemented on `StoreInner` in `store.rs:1838`. Sibling crates cannot implement `StoreOps` or call `spawn` directly — `spawn` is `pub(crate)` as well.
 
+**v1.7.3 addition:** `Store::schedule_task(&self, task: BacklogTask)` is now the public scheduling surface for sibling crates. It routes to the internal executor without exposing `BackgroundExecutor` lifecycle internals. See CP-D2-3.
+
 ### v1 workaround for sibling crates that need Store access
 
-Sibling crate tasks that need to call store methods must capture an `Arc<Store>` in the `TaskKind::Custom` closure environment at scheduling time:
+Sibling crate tasks that need to call store methods must capture an `Arc<Store>` in the `TaskKind::Custom` closure environment at scheduling time. Use `Weak<Store>` to avoid extending the store's lifetime:
 
 ```rust
-// fossic-similarity-hnsw will do this for the v1.7.3 background indexing pass
 let store_weak = Arc::downgrade(&store);
-executor.schedule(BacklogTask {
+store.schedule_task(BacklogTask {
     kind: TaskKind::Custom(Arc::new(move || {
         if let Some(store) = store_weak.upgrade() {
             // Call store methods here.
         }
     })),
-    ..
+    ..default
 });
 ```
 
@@ -476,6 +485,15 @@ The trait signature at v1.7.1 is `index(&self, event_id: EventId, embedding: &[f
 
 **CP-FOSSIC-PY-VERSION-STRING — fossic-py pip version label mismatch**
 The version string visible via `pip show fossic` may diverge from the Cargo.toml version during periods where the binding crates are bumped as a group. This is a cosmetic issue in dev environments; it does not affect runtime behavior. Tracked for resolution when the Python packaging pipeline is formalized.
+
+**CP-D2-3 — schedule_save takes &Store, not &BackgroundExecutor**
+The v1.7.3 brief specified `schedule_save(executor: &BackgroundExecutor, priority: TaskPriority)`. The actual implementation takes `schedule_save(provider: Arc<Self>, store: &Store, priority: TaskPriority)` because `BackgroundExecutor::spawn` is `pub(crate)` and cannot be constructed by external crates. `Store::schedule_task` was added as the public scheduling surface (v1.7.3). The anticipated v2 surface opens `BackgroundExecutor` directly or provides an equivalent handle. Sibling crate code using `&Store` will need to be updated when that lands.
+
+**CP-HNSW-PANIC-CATCH — catch_unwind pattern for external library panics (v1.7.2)**
+hnsw_rs uses `assert_eq!` for file format validation — a corrupt data file panics rather than returning `Err`. The `load_hnsw_catching_panics` helper in `crates/fossic-similarity-hnsw/src/provider.rs` wraps `HnswIo::load_hnsw` in `std::panic::catch_unwind(AssertUnwindSafe(...))` to convert panics to `HnswError::IndexCorrupted`. Pattern applies whenever a C/C++-backed Rust crate uses assertions for validation: wrap the call in `catch_unwind` + `AssertUnwindSafe`, convert the payload to a typed error. Documentation section for this pattern is deferred to a future §8.
+
+**CP-HNSW-TWO-FILE-ATOMIC — atomic two-file save pattern (v1.7.2)**
+hnsw_rs `file_dump` produces two files (`{basename}.hnsw.data` + `{basename}.hnsw.graph`) with no single-file option. The atomic save contract: write both graph files via `file_dump`, then write `mappings.bin`. If any write fails, `cleanup_index_files()` removes all three before returning the error. This "write all, or leave none" pattern applies to any multi-file atomic checkpoint: attempt all writes, catch the first error, remove all produced files, return `Err`. Documentation section for this pattern is deferred to a future §8.
 
 ---
 

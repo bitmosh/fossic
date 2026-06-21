@@ -1,4 +1,4 @@
-use fossic::{EventId, SimilarityQuery, SimilaritySearchProvider};
+use fossic::{BacklogTask, EventId, OpenOptions, SimilarityQuery, SimilaritySearchProvider, Store, TaskKind, TaskPriority};
 use fossic_similarity_hnsw::{HnswConfig, HnswProvider};
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -15,6 +15,25 @@ fn make_provider_in(dir: &TempDir, dims: usize) -> Arc<HnswProvider> {
     let db_path = dir.path().join("store.db");
     let config = HnswConfig::default().with_dimensions(dims);
     Arc::new(HnswProvider::new(&db_path, config).unwrap())
+}
+
+/// Creates a provider + Store sharing the same db_path. The Store uses a 50ms
+/// quiescence window so tests can drain the executor within ~700ms.
+fn make_store_and_provider(dims: usize) -> (Store, Arc<HnswProvider>, TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("store.db");
+    let config = HnswConfig::default().with_dimensions(dims);
+    let provider = Arc::new(HnswProvider::new(&db_path, config).unwrap());
+    let store = Store::open(
+        &db_path,
+        OpenOptions {
+            executor_quiescence_window_ms: 50,
+            background_executor_grace_timeout_ms: 1_000,
+            ..OpenOptions::default()
+        },
+    )
+    .unwrap();
+    (store, provider, dir)
 }
 
 fn event_id(n: u8) -> EventId {
@@ -329,4 +348,147 @@ fn trait_indexed_events_excluded_from_stream_filter() {
         assert_ne!(hit.event_id, event_id(1));
     }
     assert!(hits.iter().any(|h| h.event_id == event_id(2)));
+}
+
+// ── Background scheduling (v1.7.3) ───────────────────────────────────────────
+
+/// Dirty index + schedule_save → task executes in the next quiescent window,
+/// files appear on disk, dirty cleared.
+#[test]
+fn schedule_save_fires_when_dirty() {
+    const DIMS: usize = 4;
+    let (store, p, dir) = make_store_and_provider(DIMS);
+    let hnsw_dir = dir.path().join("hnsw");
+
+    p.index(event_id(1), &[1.0, 0.0, 0.0, 0.0]).unwrap();
+    assert!(p.is_dirty());
+
+    HnswProvider::schedule_save(Arc::clone(&p), &store, TaskPriority::Low);
+    assert!(p.is_save_pending());
+
+    // Give the bg thread one full poll tick (500ms) + quiescence window (50ms) + margin.
+    std::thread::sleep(std::time::Duration::from_millis(700));
+
+    assert!(!p.is_dirty(), "dirty should be cleared after save");
+    assert!(!p.is_save_pending(), "save_pending should be cleared after closure runs");
+    assert!(hnsw_dir.join("index.hnsw.data").exists(), "graph data file must exist after save");
+    assert!(hnsw_dir.join("index.hnsw.graph").exists(), "graph file must exist after save");
+    assert!(hnsw_dir.join("mappings.bin").exists(), "mappings file must exist after save");
+    drop(store);
+}
+
+/// schedule_save is a no-op when dirty=false — no task is queued.
+#[test]
+fn schedule_save_noop_when_not_dirty() {
+    const DIMS: usize = 4;
+    let (store, p, _dir) = make_store_and_provider(DIMS);
+
+    p.index(event_id(1), &[1.0, 0.0, 0.0, 0.0]).unwrap();
+    p.save_to_disk().unwrap(); // clears dirty
+
+    assert!(!p.is_dirty());
+    HnswProvider::schedule_save(Arc::clone(&p), &store, TaskPriority::Low);
+    // save_pending must remain false — no task was queued
+    assert!(!p.is_save_pending(), "schedule_save must be a no-op when dirty=false");
+    drop(store);
+}
+
+/// 1000 index+schedule_save calls in a hot loop: only ONE task is queued
+/// (storm-scheduling prevention via optimistic save_pending stamp).
+#[test]
+fn schedule_save_storm_prevention() {
+    const DIMS: usize = 4;
+    let (store, p, dir) = make_store_and_provider(DIMS);
+    let hnsw_dir = dir.path().join("hnsw");
+
+    // Hot loop: index + schedule_save 1000 times.
+    for i in 0u8..=255 {
+        p.index(event_id(i), &[i as f32 / 255.0, 0.0, 0.0, 0.0]).unwrap();
+        HnswProvider::schedule_save(Arc::clone(&p), &store, TaskPriority::Low);
+    }
+    // Only the first schedule_save queues a task; remaining 255 are no-ops.
+    assert!(p.is_save_pending(), "save_pending must be true after first schedule");
+
+    // Wait for one task execution (700ms is one bg-thread tick).
+    std::thread::sleep(std::time::Duration::from_millis(700));
+
+    assert!(!p.is_dirty(), "save must have completed");
+    assert!(!p.is_save_pending());
+    assert!(hnsw_dir.join("index.hnsw.data").exists());
+    drop(store);
+}
+
+/// A Low-priority save yields to a Normal-priority custom task when both are
+/// queued: Normal runs in tick 1, Low runs in tick 2.
+#[test]
+fn schedule_save_low_priority_yields_to_normal() {
+    use std::sync::atomic::{AtomicU32, Ordering as AO};
+    const DIMS: usize = 4;
+    let (store, p, dir) = make_store_and_provider(DIMS);
+    let hnsw_dir = dir.path().join("hnsw");
+
+    // Use a sequence counter to record execution order.
+    let seq = Arc::new(AtomicU32::new(0));
+    let normal_seq = Arc::new(AtomicU32::new(0));
+    let seq_clone = Arc::clone(&seq);
+    let normal_seq_clone = Arc::clone(&normal_seq);
+
+    // Schedule Low-priority save first.
+    p.index(event_id(1), &[1.0, 0.0, 0.0, 0.0]).unwrap();
+    HnswProvider::schedule_save(Arc::clone(&p), &store, TaskPriority::Low);
+
+    // Schedule Normal-priority task second.
+    store.schedule_task(BacklogTask {
+        priority: TaskPriority::Normal,
+        deadline_us: 0, // already past — runs immediately when quiescent
+        persist_on_drop: false,
+        kind: TaskKind::Custom(Arc::new(move || {
+            normal_seq_clone.store(seq_clone.fetch_add(1, AO::SeqCst) + 1, AO::SeqCst);
+        })),
+        recurring_interval: None,
+    });
+
+    // After 1 tick: Normal should have run (higher priority), Low should not.
+    std::thread::sleep(std::time::Duration::from_millis(700));
+    let n_seq = normal_seq.load(AO::SeqCst);
+    assert!(n_seq > 0, "Normal task must have run within the first tick");
+    // dirty=true means Low (save) hasn't run yet
+    assert!(p.is_dirty(), "Low-priority save should not have run yet after tick 1");
+
+    // After 2 ticks: Low (save) should have run.
+    std::thread::sleep(std::time::Duration::from_millis(700));
+    assert!(!p.is_dirty(), "Low-priority save must complete by tick 2");
+    assert!(hnsw_dir.join("index.hnsw.data").exists());
+    drop(store);
+}
+
+/// Drop the last Arc<HnswProvider> after schedule_save — the Weak in the
+/// closure fails to upgrade. No panic, no error, no files written.
+///
+/// This documents the "in-memory state is lost" semantics for callers who
+/// drop the provider before the quiescent window. The save closure is a no-op.
+#[test]
+fn schedule_save_drop_provider_before_quiescence_noop() {
+    const DIMS: usize = 4;
+    let (store, p, dir) = make_store_and_provider(DIMS);
+    let hnsw_dir = dir.path().join("hnsw");
+
+    p.index(event_id(1), &[1.0, 0.0, 0.0, 0.0]).unwrap();
+    assert!(p.is_dirty());
+
+    // schedule_save captures Weak<HnswProvider>; the Arc<> passed in is the
+    // only strong reference (strong_count drops to 1 after schedule_save returns).
+    HnswProvider::schedule_save(Arc::clone(&p), &store, TaskPriority::Low);
+
+    // Drop the last strong reference.
+    drop(p);
+    // Now strong_count = 0; provider is dropped. Weak::upgrade will return None.
+
+    // Let the bg thread run the closure.
+    std::thread::sleep(std::time::Duration::from_millis(700));
+
+    // No panic, no files written (closure was a no-op due to failed upgrade).
+    assert!(!hnsw_dir.join("index.hnsw.data").exists(), "no graph files after dropped-provider save");
+    assert!(!hnsw_dir.join("index.hnsw.graph").exists());
+    drop(store);
 }

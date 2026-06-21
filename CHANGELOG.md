@@ -5,6 +5,45 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.7.3 — 2026-06-21 — D2 scheduling: background indexing via TaskKind::Custom
+
+**Pass report:** `docs/aseptic/blast-radius/pass-1.7.3.md`
+
+### fossic: Store::schedule_task
+
+- `Store::schedule_task(&self, task: BacklogTask)` — public scheduling surface for external crates. Routes to the internal `BackgroundExecutor`; no-op if executor absent. Enables sibling crates to defer work to the quiescent executor without exposing `BackgroundExecutor` lifecycle internals.
+
+### fossic-similarity-hnsw: background save scheduling
+
+- `HnswProvider::dirty: AtomicBool` — set on every `index` / `index_with_stream_id` call; cleared after a successful `save_to_disk`. Prevents no-op save tasks from being queued.
+- `HnswProvider::save_pending: AtomicBool` — set at `schedule_save` time (not at execution time) per §3 of SUBSTRATE_EXTENSION_PATTERNS. Prevents storm-scheduling when `index` is called in a hot loop.
+- `HnswProvider::schedule_save(provider: Arc<Self>, store: &Store, priority: TaskPriority)` — schedules a deferred `save_to_disk` via the store's background executor. No-op when `dirty=false` or `save_pending=true`. The closure captures `Weak<HnswProvider>`: if the caller drops the last strong reference before the quiescent window opens, the Weak upgrade fails and no save occurs (in-memory state is lost — by design, no rescue).
+- `HnswProvider::is_dirty() -> bool` and `is_save_pending() -> bool` — public diagnostic accessors.
+- `save_to_disk` restructured to clear `dirty` after any successful save (empty or non-empty path).
+
+### SUBSTRATE_EXTENSION_PATTERNS.md
+
+- §2 code example updated to reflect actual `&Store` / `Weak<HnswProvider>` pattern
+- §2 API surface updated: `Store::schedule_task` documented
+- §5 updated with v1.7.3 addition note
+- CP-D2-3, CP-HNSW-PANIC-CATCH, CP-HNSW-TWO-FILE-ATOMIC added to Known Gaps
+- Version updated to v1.7.3
+
+### Deviation from brief
+
+Brief specified `schedule_save(executor: &BackgroundExecutor, priority: TaskPriority)`. Actual signature: `schedule_save(provider: Arc<Self>, store: &Store, priority: TaskPriority)`. `BackgroundExecutor::spawn` is `pub(crate)` — external crates cannot create one. `Store::schedule_task` is the v1 public surface. Filed as **CP-D2-3**.
+
+### Tests
+
+19 integration tests (14 from v1.7.1–1.7.2 + 5 new):
+- `schedule_save_fires_when_dirty` — dirty index → scheduled save executes, files appear
+- `schedule_save_noop_when_not_dirty` — save_pending not set when dirty=false
+- `schedule_save_storm_prevention` — 1000 index+schedule_save calls queue exactly 1 task
+- `schedule_save_low_priority_yields_to_normal` — Normal custom task runs in tick 1, Low save in tick 2
+- `schedule_save_drop_provider_before_quiescence_noop` — Weak upgrade fails after drop; no files, no panic
+
+---
+
 ## v1.7.2 — 2026-06-21 — D2 persistence: HnswProvider save/load
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.7.2.md`

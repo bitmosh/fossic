@@ -1553,6 +1553,16 @@ impl Store {
         self.inner.dispatch_channel_high_water_mark.load(Ordering::Relaxed)
     }
 
+    /// Schedule a custom background task on this store's executor.
+    ///
+    /// No-op if the store was opened without a background executor (rare).
+    /// The task executes on the next quiescent window after `task.deadline_us`.
+    pub fn schedule_task(&self, task: crate::executor::BacklogTask) {
+        if let Some(ref exec) = *self.inner.background_executor.lock() {
+            exec.schedule(task);
+        }
+    }
+
     // ── Internal helpers ──────────────────────────────────────────────────────
 
     fn lock(&self) -> Result<MutexGuard<'_, Connection>, Error> {
