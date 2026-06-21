@@ -5,6 +5,16 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.4.0 — TBD — Phase 8: Hub Coordinator Preparation
+
+**Pass report:** `docs/aseptic/blast-radius/pass-1.4.0.md`
+
+### Added
+
+- _TBD — event-sourced project discovery primitives (`ProjectRegistered`, `RelayHeartbeat`)_
+
+---
+
 ## v1.3.1 — 2026-06-21 — Phase 6/7 integration: EveryNSeconds + recurring GC
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.3.1.md`
