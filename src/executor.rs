@@ -1,0 +1,347 @@
+use std::{
+    cmp::Ordering,
+    collections::BinaryHeap,
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, AtomicI64, Ordering as AOrdering},
+        Arc, Weak,
+    },
+    time::Duration,
+};
+
+use crate::{error::Error, system_stream::SystemStreamWriter, types::SnapshotInfo};
+
+// ── StoreOps ──────────────────────────────────────────────────────────────────
+
+/// Capability surface the background executor needs from the store.
+///
+/// Implemented on `StoreInner` in `store.rs`. `BackgroundExecutor` holds a
+/// `Weak<dyn StoreOps>` so the executor never keeps the store alive past its
+/// natural drop — if the upgrade fails the task is silently skipped.
+pub(crate) trait StoreOps: Send + Sync + 'static {
+    fn bg_gc_orphaned_snapshots(&self) -> Result<usize, Error>;
+    fn bg_take_snapshot(&self, stream_id: &str, branch: &str) -> Result<SnapshotInfo, Error>;
+}
+
+// ── TaskPriority ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum TaskPriority {
+    Low = 0,
+    Normal = 1,
+    High = 2,
+}
+
+// ── TaskKind ──────────────────────────────────────────────────────────────────
+
+pub(crate) enum TaskKind {
+    GcOrphanSnapshots,
+    TakeSnapshot { stream_id: String, branch: String },
+}
+
+impl TaskKind {
+    pub(crate) fn name(&self) -> &'static str {
+        match self {
+            TaskKind::GcOrphanSnapshots => "GcOrphanSnapshots",
+            TaskKind::TakeSnapshot { .. } => "TakeSnapshot",
+        }
+    }
+}
+
+// ── BacklogTask ───────────────────────────────────────────────────────────────
+
+pub(crate) struct BacklogTask {
+    pub(crate) priority: TaskPriority,
+    /// Absolute deadline in microseconds since Unix epoch.
+    /// Earlier deadline wins when priorities are equal.
+    pub(crate) deadline_us: i64,
+    /// When `true`, a `DeferredTaskDropped` system event is emitted at shutdown
+    /// if this task was not executed. When `false`, the task is logged and dropped.
+    pub(crate) persist_on_drop: bool,
+    pub(crate) kind: TaskKind,
+}
+
+impl PartialEq for BacklogTask {
+    fn eq(&self, other: &Self) -> bool {
+        self.priority == other.priority && self.deadline_us == other.deadline_us
+    }
+}
+impl Eq for BacklogTask {}
+
+impl Ord for BacklogTask {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Higher priority first. Equal priority: earlier deadline first.
+        // BinaryHeap is a max-heap, so we invert the deadline comparison.
+        self.priority
+            .cmp(&other.priority)
+            .then_with(|| other.deadline_us.cmp(&self.deadline_us))
+    }
+}
+
+impl PartialOrd for BacklogTask {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+// ── QuiescenceMonitor ─────────────────────────────────────────────────────────
+
+/// Tracks the most recent write and subscription-dispatch timestamps so the
+/// background executor can determine when the store is quiescent.
+///
+/// Both timestamps are initialised to `now_us()` at construction so the store
+/// is never quiescent at open time.
+pub(crate) struct QuiescenceMonitor {
+    last_write_us: AtomicI64,
+    last_subscription_dispatch_us: AtomicI64,
+}
+
+impl QuiescenceMonitor {
+    pub(crate) fn new() -> Self {
+        let now = crate::schema::now_us();
+        QuiescenceMonitor {
+            last_write_us: AtomicI64::new(now),
+            last_subscription_dispatch_us: AtomicI64::new(now),
+        }
+    }
+
+    /// Call after each successful event write (append / append_batch / append_if).
+    pub(crate) fn note_write(&self) {
+        self.last_write_us
+            .store(crate::schema::now_us(), AOrdering::Relaxed);
+    }
+
+    /// Call after each subscription dispatch round.
+    /// Wired into `start_dispatcher` in store.rs.
+    pub(crate) fn note_dispatch(&self) {
+        self.last_subscription_dispatch_us
+            .store(crate::schema::now_us(), AOrdering::Relaxed);
+    }
+
+    /// Returns `true` when both write and dispatch timestamps are at least
+    /// `window_us` microseconds in the past.
+    pub(crate) fn is_quiescent(&self, window_us: i64) -> bool {
+        let now = crate::schema::now_us();
+        let lw = self.last_write_us.load(AOrdering::Relaxed);
+        let ld = self.last_subscription_dispatch_us.load(AOrdering::Relaxed);
+        (now - lw) >= window_us && (now - ld) >= window_us
+    }
+}
+
+// ── BackgroundExecutor ────────────────────────────────────────────────────────
+
+pub(crate) struct BackgroundExecutor {
+    task_tx: crossbeam_channel::Sender<BacklogTask>,
+    stop_flag: Arc<AtomicBool>,
+    done_rx: crossbeam_channel::Receiver<()>,
+    thread: Option<std::thread::JoinHandle<()>>,
+    grace_timeout: Duration,
+}
+
+impl BackgroundExecutor {
+    pub(crate) fn spawn(
+        store_ops: Weak<dyn StoreOps>,
+        quiescence: Arc<QuiescenceMonitor>,
+        db_path: PathBuf,
+        grace_timeout: Duration,
+        quiescence_window_us: i64,
+    ) -> Result<Self, Error> {
+        let (task_tx, task_rx) = crossbeam_channel::unbounded::<BacklogTask>();
+        let (done_tx, done_rx) = crossbeam_channel::bounded::<()>(1);
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let stop_flag_thread = Arc::clone(&stop_flag);
+
+        let handle = std::thread::Builder::new()
+            .name("fossic-bg".to_string())
+            .spawn(move || {
+                bg_thread_loop(
+                    store_ops,
+                    quiescence,
+                    task_rx,
+                    stop_flag_thread,
+                    db_path,
+                    done_tx,
+                    quiescence_window_us,
+                );
+            })
+            .map_err(|e| Error::Internal(format!("fossic-bg spawn failed: {e}")))?;
+
+        Ok(BackgroundExecutor {
+            task_tx,
+            stop_flag,
+            done_rx,
+            thread: Some(handle),
+            grace_timeout,
+        })
+    }
+
+    pub(crate) fn schedule(&self, task: BacklogTask) {
+        let _ = self.task_tx.send(task);
+    }
+}
+
+impl Drop for BackgroundExecutor {
+    fn drop(&mut self) {
+        self.stop_flag.store(true, AOrdering::Relaxed);
+        if let Some(handle) = self.thread.take() {
+            match self.done_rx.recv_timeout(self.grace_timeout) {
+                Ok(()) | Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                    let _ = handle.join();
+                }
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                    // Grace period exceeded — detach. The thread will finish when it
+                    // next wakes from its 500ms sleep and sees the stop flag.
+                    eprintln!(
+                        "[WARN fossic] fossic-bg did not stop within grace period ({:?}) — detaching",
+                        self.grace_timeout,
+                    );
+                }
+            }
+        }
+    }
+}
+
+// ── Thread loop ───────────────────────────────────────────────────────────────
+
+fn bg_thread_loop(
+    store_ops: Weak<dyn StoreOps>,
+    quiescence: Arc<QuiescenceMonitor>,
+    task_rx: crossbeam_channel::Receiver<BacklogTask>,
+    stop_flag: Arc<AtomicBool>,
+    db_path: PathBuf,
+    done_tx: crossbeam_channel::Sender<()>,
+    quiescence_window_us: i64,
+) {
+    let mut heap: BinaryHeap<BacklogTask> = BinaryHeap::new();
+    // Lazy-initialised on first DeferredTaskDropped emission at shutdown.
+    // Third SystemStreamWriter instance — separate connection, same WAL file.
+    let mut sys_writer: Option<SystemStreamWriter> = None;
+
+    loop {
+        std::thread::sleep(Duration::from_millis(500));
+
+        // ── Stop-flag check ───────────────────────────────────────────────────
+        if stop_flag.load(AOrdering::Relaxed) {
+            // Drain remaining channel tasks into heap before emitting/dropping.
+            while let Ok(task) = task_rx.try_recv() {
+                heap.push(task);
+            }
+            // Emit DeferredTaskDropped for persist_on_drop tasks; log + drop others.
+            while let Some(task) = heap.pop() {
+                if task.persist_on_drop {
+                    let payload = serde_json::json!({
+                        "task": task.kind.name(),
+                        "priority": format!("{:?}", task.priority),
+                        "deadline_us": task.deadline_us,
+                    });
+                    if sys_writer.is_none() {
+                        sys_writer = SystemStreamWriter::new(&db_path);
+                    }
+                    if let Some(ref mut w) = sys_writer {
+                        w.emit("DeferredTaskDropped", &payload, None);
+                    }
+                } else {
+                    eprintln!(
+                        "[fossic] fossic-bg: dropping task '{}' (persist_on_drop=false)",
+                        task.kind.name()
+                    );
+                }
+            }
+            break;
+        }
+
+        // ── Drain channel into heap ───────────────────────────────────────────
+        while let Ok(task) = task_rx.try_recv() {
+            heap.push(task);
+        }
+
+        // ── Quiescence gate ───────────────────────────────────────────────────
+        if heap.is_empty() || !quiescence.is_quiescent(quiescence_window_us) {
+            continue;
+        }
+
+        // ── Execute one task ──────────────────────────────────────────────────
+        if let Some(task) = heap.pop() {
+            if let Some(ops) = store_ops.upgrade() {
+                execute_task(&*ops, task);
+            }
+            // upgrade() returning None means the store has been dropped — skip.
+        }
+    }
+
+    let _ = done_tx.send(());
+}
+
+fn execute_task(ops: &dyn StoreOps, task: BacklogTask) {
+    match task.kind {
+        TaskKind::GcOrphanSnapshots => {
+            if let Err(e) = ops.bg_gc_orphaned_snapshots() {
+                eprintln!("[WARN fossic] fossic-bg: GcOrphanSnapshots failed: {e}");
+            }
+        }
+        TaskKind::TakeSnapshot { ref stream_id, ref branch } => {
+            if let Err(e) = ops.bg_take_snapshot(stream_id, branch) {
+                eprintln!("[WARN fossic] fossic-bg: TakeSnapshot({stream_id}, {branch}) failed: {e}");
+            }
+        }
+    }
+}
+
+// ── Unit tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn task_priority_high_before_low() {
+        let mut heap = BinaryHeap::new();
+        heap.push(BacklogTask {
+            priority: TaskPriority::Low,
+            deadline_us: 1000,
+            persist_on_drop: false,
+            kind: TaskKind::GcOrphanSnapshots,
+        });
+        heap.push(BacklogTask {
+            priority: TaskPriority::High,
+            deadline_us: 2000,
+            persist_on_drop: false,
+            kind: TaskKind::GcOrphanSnapshots,
+        });
+        let first = heap.pop().unwrap();
+        assert_eq!(first.priority, TaskPriority::High);
+    }
+
+    #[test]
+    fn task_equal_priority_earlier_deadline_first() {
+        let mut heap = BinaryHeap::new();
+        heap.push(BacklogTask {
+            priority: TaskPriority::Low,
+            deadline_us: 2000,
+            persist_on_drop: false,
+            kind: TaskKind::GcOrphanSnapshots,
+        });
+        heap.push(BacklogTask {
+            priority: TaskPriority::Low,
+            deadline_us: 1000,
+            persist_on_drop: false,
+            kind: TaskKind::GcOrphanSnapshots,
+        });
+        let first = heap.pop().unwrap();
+        assert_eq!(first.deadline_us, 1000);
+    }
+
+    #[test]
+    fn quiescence_not_quiescent_immediately_after_write() {
+        let qm = QuiescenceMonitor::new();
+        qm.note_write();
+        assert!(!qm.is_quiescent(2_000_000));
+    }
+
+    #[test]
+    fn quiescence_not_quiescent_immediately_after_dispatch() {
+        let qm = QuiescenceMonitor::new();
+        qm.note_dispatch();
+        assert!(!qm.is_quiescent(2_000_000));
+    }
+}

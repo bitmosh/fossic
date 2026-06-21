@@ -365,6 +365,8 @@ impl TryFrom<&PyOpenOptions> for OpenOptions {
             default_max_bytes: None,
             reducer_state_large_threshold_bytes: 1_048_576,
             auto_gc_orphans: false,
+            background_executor_grace_timeout_ms: 10_000,
+            executor_quiescence_window_ms: 2_000,
         })
     }
 }
