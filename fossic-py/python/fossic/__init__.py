@@ -81,6 +81,12 @@ try:
         SubscriptionMode,
         UpcasterChainGapError,
         OpenOptions,
+        ReadOutcome,
+        SamplingMode,
+        TruncationCursor,
+        RangeIter,
+        CorrelationIter,
+        CausationIter,
         cce_encode_value as _cce_encode_value_impl,
         cce_encode_bytes_raw as _cce_encode_bytes_raw_impl,
         cce_encode_f64_bits as _cce_encode_f64_bits_impl,
@@ -92,6 +98,12 @@ except ImportError:
     _RUST_AVAILABLE = False
     _RustStore = None  # type: ignore[assignment]
     ReadQuery = None  # type: ignore[assignment,misc]
+    ReadOutcome = None  # type: ignore[assignment,misc]
+    SamplingMode = None  # type: ignore[assignment,misc]
+    TruncationCursor = None  # type: ignore[assignment,misc]
+    RangeIter = None  # type: ignore[assignment,misc]
+    CorrelationIter = None  # type: ignore[assignment,misc]
+    CausationIter = None  # type: ignore[assignment,misc]
     _cce_encode_value_impl = None  # type: ignore[assignment]
     _cce_encode_bytes_raw_impl = None  # type: ignore[assignment]
     _cce_encode_f64_bits_impl = None  # type: ignore[assignment]
@@ -295,6 +307,53 @@ class Store:
         max_depth: int = 100,
     ) -> "list[StoredEvent]":
         return self._inner.walk_causation(start, direction, max_depth)  # type: ignore[return-value]
+
+    def read_range_bounded(
+        self,
+        query: Any,
+        max_results: Optional[int] = None,
+        max_bytes: Optional[int] = None,
+        cursor: Any = None,
+    ) -> Any:
+        return self._inner.read_range_bounded(query, max_results, max_bytes, cursor)
+
+    def read_by_correlation_bounded(
+        self,
+        correlation_id: "EventId",
+        max_results: Optional[int] = None,
+        max_bytes: Optional[int] = None,
+        cursor: Any = None,
+    ) -> Any:
+        return self._inner.read_by_correlation_bounded(correlation_id, max_results, max_bytes, cursor)
+
+    def walk_causation_bounded(
+        self,
+        start: "EventId",
+        direction: str = "forward",
+        max_depth: int = 100,
+        sampling: Any = None,
+        max_results: Optional[int] = None,
+        max_bytes: Optional[int] = None,
+        cursor: Any = None,
+    ) -> Any:
+        return self._inner.walk_causation_bounded(
+            start, direction, max_depth, sampling, max_results, max_bytes, cursor
+        )
+
+    def read_range_iter(self, query: Any) -> Any:
+        return self._inner.read_range_iter(query)
+
+    def read_by_correlation_iter(self, correlation_id: "EventId") -> Any:
+        return self._inner.read_by_correlation_iter(correlation_id)
+
+    def walk_causation_iter(
+        self,
+        start: "EventId",
+        direction: str = "forward",
+        max_depth: int = 100,
+        sampling: Any = None,
+    ) -> Any:
+        return self._inner.walk_causation_iter(start, direction, max_depth, sampling)
 
     def aggregate(self, query: "AggregateQuery") -> "list[StoredEvent]":
         return self._inner.aggregate(query)  # type: ignore[return-value]
@@ -585,6 +644,14 @@ __all__ = [
     "cce_encode_bytes_raw",
     "cce_encode_f64_bits",
     "compute_event_id",
+    # Bounded reads
+    "ReadOutcome",
+    "SamplingMode",
+    "TruncationCursor",
+    # Streaming iterators
+    "RangeIter",
+    "CorrelationIter",
+    "CausationIter",
     # Relay
     "RelayConfig",
     "RelayAgent",

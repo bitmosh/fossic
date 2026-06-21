@@ -1,9 +1,10 @@
 use fossic::{
     Append, BranchInfo, BranchSegment, CheckpointMode, CreateBranch, EncryptionMode,
-    EventId, FirstOpenPolicy, OpenOptions, ReadQuery, SnapshotInfo, StoredEvent, StreamInfo,
+    EventId, FirstOpenPolicy, OpenOptions, ReadOutcome, ReadQuery, SamplingMode, SnapshotInfo,
+    StoredEvent, StreamInfo, TruncationCursor, TruncationReason,
 };
 use pyo3::prelude::*;
-use pyo3::types::{PyAny, PyBytes};
+use pyo3::types::{PyAny, PyBytes, PyType};
 
 use crate::errors::to_py_err;
 
@@ -614,6 +615,155 @@ impl PyAggregateQuery {
             from_timestamp_us,
             to_timestamp_us,
             indexed_tags_filter,
+        }
+    }
+}
+
+// ── TruncationCursor ──────────────────────────────────────────────────────────
+
+#[pyclass(name = "TruncationCursor")]
+pub struct PyTruncationCursor {
+    pub inner: TruncationCursor,
+}
+
+impl From<TruncationCursor> for PyTruncationCursor {
+    fn from(v: TruncationCursor) -> Self {
+        PyTruncationCursor { inner: v }
+    }
+}
+
+impl Clone for PyTruncationCursor {
+    fn clone(&self) -> Self {
+        PyTruncationCursor { inner: TruncationCursor::from_bytes(self.inner.as_bytes().to_vec()) }
+    }
+}
+
+#[pymethods]
+impl PyTruncationCursor {
+    fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, self.inner.as_bytes())
+    }
+
+    #[classmethod]
+    fn from_bytes(_cls: &Bound<'_, PyType>, b: &Bound<'_, PyBytes>) -> Self {
+        PyTruncationCursor {
+            inner: TruncationCursor::from_bytes(b.as_bytes().to_vec()),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("TruncationCursor(<{} bytes>)", self.inner.as_bytes().len())
+    }
+}
+
+// ── SamplingMode ──────────────────────────────────────────────────────────────
+
+#[pyclass(name = "SamplingMode")]
+#[derive(Clone)]
+pub struct PySamplingMode {
+    pub inner: SamplingMode,
+}
+
+#[pymethods]
+impl PySamplingMode {
+    #[staticmethod]
+    fn exhaustive() -> Self {
+        PySamplingMode { inner: SamplingMode::Exhaustive }
+    }
+
+    #[staticmethod]
+    #[pyo3(signature = (max_per_level = 100))]
+    fn breadth_first(max_per_level: usize) -> Self {
+        PySamplingMode { inner: SamplingMode::BreadthFirst { max_per_level } }
+    }
+
+    #[staticmethod]
+    #[pyo3(signature = (target_count = 100))]
+    fn adaptive(target_count: usize) -> Self {
+        PySamplingMode { inner: SamplingMode::Adaptive { target_count } }
+    }
+
+    fn __repr__(&self) -> String {
+        match &self.inner {
+            SamplingMode::Exhaustive => "SamplingMode.exhaustive()".into(),
+            SamplingMode::BreadthFirst { max_per_level } => {
+                format!("SamplingMode.breadth_first(max_per_level={max_per_level})")
+            }
+            SamplingMode::Adaptive { target_count } => {
+                format!("SamplingMode.adaptive(target_count={target_count})")
+            }
+        }
+    }
+}
+
+// ── ReadOutcome ───────────────────────────────────────────────────────────────
+
+#[pyclass(name = "ReadOutcome")]
+pub struct PyReadOutcome {
+    pub events: Vec<StoredEvent>,
+    pub is_truncated_flag: bool,
+    pub reason: Option<String>,
+    pub next_cursor: Option<PyTruncationCursor>,
+}
+
+impl PyReadOutcome {
+    pub fn from_outcome(outcome: ReadOutcome<Vec<StoredEvent>>) -> Self {
+        match outcome {
+            ReadOutcome::Complete(events) => PyReadOutcome {
+                events,
+                is_truncated_flag: false,
+                reason: None,
+                next_cursor: None,
+            },
+            ReadOutcome::Truncated { data, cursor, reason } => PyReadOutcome {
+                events: data,
+                is_truncated_flag: true,
+                reason: Some(match reason {
+                    TruncationReason::ResultCount => "result_count".into(),
+                    TruncationReason::ByteSize => "byte_size".into(),
+                }),
+                next_cursor: cursor.map(PyTruncationCursor::from),
+            },
+        }
+    }
+}
+
+#[pymethods]
+impl PyReadOutcome {
+    #[getter]
+    fn results(&self) -> Vec<PyStoredEvent> {
+        self.events.iter().map(|e| PyStoredEvent::from(e.clone())).collect()
+    }
+
+    #[getter]
+    fn is_truncated(&self) -> bool {
+        self.is_truncated_flag
+    }
+
+    #[getter]
+    fn complete(&self) -> bool {
+        !self.is_truncated_flag
+    }
+
+    #[getter]
+    fn reason(&self) -> Option<&str> {
+        self.reason.as_deref()
+    }
+
+    #[getter]
+    fn next_cursor(&self) -> Option<PyTruncationCursor> {
+        self.next_cursor.clone()
+    }
+
+    fn __repr__(&self) -> String {
+        if self.is_truncated_flag {
+            format!(
+                "ReadOutcome.truncated(count={}, reason={:?})",
+                self.events.len(),
+                self.reason.as_deref().unwrap_or("")
+            )
+        } else {
+            format!("ReadOutcome.complete(count={})", self.events.len())
         }
     }
 }

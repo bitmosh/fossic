@@ -1,7 +1,7 @@
 use crossbeam_channel as cc;
 use fossic::{
-    Aggregate, AggregateQuery, Error, PayloadTransform, Store, SubscribeQuery,
-    SubscriptionMode, Upcaster, WalkDirection,
+    Aggregate, AggregateQuery, CausationIter, CorrelationIter, Error, PayloadTransform,
+    RangeIter, Store, SubscribeQuery, SubscriptionMode, Upcaster, WalkDirection,
 };
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
@@ -10,9 +10,10 @@ use crate::{
     errors::to_py_err,
     subscriptions::{PyQueueHandler, PyRawSubscriptionHandle},
     types::{
-        json_to_py, py_to_json, PyAppend, PyAggregateQuery, PyBranchInfo, PyBranchSegment,
-        PyCreateBranch, PyEventId, PyOpenOptions, PyReadQuery, PySnapshotInfo, PyStoredEvent,
-        PyStreamInfo, PySubscriptionMode, SubModeKind,
+        json_to_py, py_to_json, PyAggregateQuery, PyAppend, PyBranchInfo, PyBranchSegment,
+        PyCreateBranch, PyEventId, PyOpenOptions, PyReadOutcome, PyReadQuery, PySamplingMode,
+        PySnapshotInfo, PyStoredEvent, PyStreamInfo, PySubscriptionMode, PyTruncationCursor,
+        SubModeKind,
     },
 };
 
@@ -166,6 +167,17 @@ impl fossic::DynReducer for PyDynReducer {
             })?;
             rmp_serde::to_vec_named(&new_json).map_err(fossic::Error::MsgpackEncode)
         })
+    }
+}
+
+fn parse_direction(s: &str) -> PyResult<WalkDirection> {
+    match s {
+        "forward" => Ok(WalkDirection::Forward),
+        "backward" => Ok(WalkDirection::Backward),
+        "both" => Ok(WalkDirection::Both),
+        other => Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "unknown direction {other:?}; expected \"forward\", \"backward\", or \"both\""
+        ))),
     }
 }
 
@@ -324,20 +336,90 @@ impl PyStore {
         direction: &str,
         max_depth: usize,
     ) -> PyResult<Vec<PyStoredEvent>> {
-        let dir = match direction {
-            "forward" => WalkDirection::Forward,
-            "backward" => WalkDirection::Backward,
-            "both" => WalkDirection::Both,
-            other => {
-                return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                    "unknown direction {other:?}; expected \"forward\", \"backward\", or \"both\""
-                )))
-            }
-        };
+        let dir = parse_direction(direction)?;
         self.inner
             .walk_causation(start.inner, dir, max_depth)
             .map(|v| v.into_iter().map(PyStoredEvent::from).collect())
             .map_err(to_py_err)
+    }
+
+    // ── Bounded reads ─────────────────────────────────────────────────────────
+
+    #[pyo3(signature = (query, max_results = None, max_bytes = None, cursor = None))]
+    fn read_range_bounded(
+        &self,
+        query: PyRef<PyReadQuery>,
+        max_results: Option<usize>,
+        max_bytes: Option<usize>,
+        cursor: Option<PyRef<PyTruncationCursor>>,
+    ) -> PyResult<PyReadOutcome> {
+        let rust_cursor = cursor.map(|c| fossic::TruncationCursor::from_bytes(c.inner.as_bytes().to_vec()));
+        self.inner
+            .read_range_bounded(fossic::ReadQuery::from(&*query), max_results, max_bytes, rust_cursor)
+            .map(PyReadOutcome::from_outcome)
+            .map_err(to_py_err)
+    }
+
+    #[pyo3(signature = (correlation_id, max_results = None, max_bytes = None, cursor = None))]
+    fn read_by_correlation_bounded(
+        &self,
+        correlation_id: PyRef<PyEventId>,
+        max_results: Option<usize>,
+        max_bytes: Option<usize>,
+        cursor: Option<PyRef<PyTruncationCursor>>,
+    ) -> PyResult<PyReadOutcome> {
+        let rust_cursor = cursor.map(|c| fossic::TruncationCursor::from_bytes(c.inner.as_bytes().to_vec()));
+        self.inner
+            .read_by_correlation_bounded(correlation_id.inner, max_results, max_bytes, rust_cursor)
+            .map(PyReadOutcome::from_outcome)
+            .map_err(to_py_err)
+    }
+
+    #[pyo3(signature = (start, direction = "forward".to_string(), max_depth = 100, sampling = None, max_results = None, max_bytes = None, cursor = None))]
+    fn walk_causation_bounded(
+        &self,
+        start: PyRef<PyEventId>,
+        direction: String,
+        max_depth: usize,
+        sampling: Option<PyRef<PySamplingMode>>,
+        max_results: Option<usize>,
+        max_bytes: Option<usize>,
+        cursor: Option<PyRef<PyTruncationCursor>>,
+    ) -> PyResult<PyReadOutcome> {
+        let dir = parse_direction(&direction)?;
+        let samp = sampling
+            .map(|s| s.inner.clone())
+            .unwrap_or(fossic::SamplingMode::Exhaustive);
+        let rust_cursor = cursor.map(|c| fossic::TruncationCursor::from_bytes(c.inner.as_bytes().to_vec()));
+        self.inner
+            .walk_causation_bounded(start.inner, dir, max_depth, samp, max_results, max_bytes, rust_cursor)
+            .map(PyReadOutcome::from_outcome)
+            .map_err(to_py_err)
+    }
+
+    // ── Streaming iterators ───────────────────────────────────────────────────
+
+    fn read_range_iter(&self, query: PyRef<PyReadQuery>) -> PyRangeIter {
+        PyRangeIter { inner: self.inner.read_range_iter(fossic::ReadQuery::from(&*query)) }
+    }
+
+    fn read_by_correlation_iter(&self, correlation_id: PyRef<PyEventId>) -> PyCorrelationIter {
+        PyCorrelationIter { inner: self.inner.read_by_correlation_iter(correlation_id.inner) }
+    }
+
+    #[pyo3(signature = (start, direction = "forward".to_string(), max_depth = 100, sampling = None))]
+    fn walk_causation_iter(
+        &self,
+        start: PyRef<PyEventId>,
+        direction: String,
+        max_depth: usize,
+        sampling: Option<PyRef<PySamplingMode>>,
+    ) -> PyResult<PyCausationIter> {
+        let dir = parse_direction(&direction)?;
+        let samp = sampling
+            .map(|s| s.inner.clone())
+            .unwrap_or(fossic::SamplingMode::Exhaustive);
+        Ok(PyCausationIter { inner: self.inner.walk_causation_iter(start.inner, dir, max_depth, samp) })
     }
 
     /// Run an aggregate query and return all matching events.
@@ -592,5 +674,67 @@ impl PyStore {
 
     fn gc_orphaned_snapshots(&self) -> PyResult<usize> {
         self.inner.gc_orphaned_snapshots().map_err(to_py_err)
+    }
+}
+
+// ── Python iterator wrappers ──────────────────────────────────────────────────
+
+#[pyclass(name = "RangeIter")]
+pub struct PyRangeIter {
+    inner: RangeIter,
+}
+
+#[pymethods]
+impl PyRangeIter {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(&mut self) -> PyResult<Option<PyStoredEvent>> {
+        match self.inner.next() {
+            None => Ok(None),
+            Some(Ok(ev)) => Ok(Some(PyStoredEvent::from(ev))),
+            Some(Err(e)) => Err(to_py_err(e)),
+        }
+    }
+}
+
+#[pyclass(name = "CorrelationIter")]
+pub struct PyCorrelationIter {
+    inner: CorrelationIter,
+}
+
+#[pymethods]
+impl PyCorrelationIter {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(&mut self) -> PyResult<Option<PyStoredEvent>> {
+        match self.inner.next() {
+            None => Ok(None),
+            Some(Ok(ev)) => Ok(Some(PyStoredEvent::from(ev))),
+            Some(Err(e)) => Err(to_py_err(e)),
+        }
+    }
+}
+
+#[pyclass(name = "CausationIter")]
+pub struct PyCausationIter {
+    inner: CausationIter,
+}
+
+#[pymethods]
+impl PyCausationIter {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(&mut self) -> PyResult<Option<PyStoredEvent>> {
+        match self.inner.next() {
+            None => Ok(None),
+            Some(Ok(ev)) => Ok(Some(PyStoredEvent::from(ev))),
+            Some(Err(e)) => Err(to_py_err(e)),
+        }
     }
 }

@@ -8,11 +8,12 @@ use pyo3::prelude::*;
 
 use cce::{cce_encode_bytes_raw, cce_encode_f64_bits, cce_encode_value, compute_event_id};
 use errors::register as register_errors;
-use store::PyStore;
+use store::{PyCausationIter, PyCorrelationIter, PyRangeIter, PyStore};
 use subscriptions::PyRawSubscriptionHandle;
 use types::{
     PyAggregateQuery, PyAppend, PyBranchInfo, PyBranchSegment, PyCreateBranch, PyEventId,
-    PyOpenOptions, PyReadQuery, PySnapshotInfo, PyStoredEvent, PyStreamInfo, PySubscriptionMode,
+    PyOpenOptions, PyReadOutcome, PyReadQuery, PySamplingMode, PySnapshotInfo, PyStoredEvent,
+    PyStreamInfo, PySubscriptionMode, PyTruncationCursor,
 };
 
 #[pymodule]
@@ -32,6 +33,12 @@ fn _fossic(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySubscriptionMode>()?;
     m.add_class::<PyAggregateQuery>()?;
     m.add_class::<PyRawSubscriptionHandle>()?;
+    m.add_class::<PyTruncationCursor>()?;
+    m.add_class::<PySamplingMode>()?;
+    m.add_class::<PyReadOutcome>()?;
+    m.add_class::<PyRangeIter>()?;
+    m.add_class::<PyCorrelationIter>()?;
+    m.add_class::<PyCausationIter>()?;
 
     // Exception hierarchy
     register_errors(m)?;

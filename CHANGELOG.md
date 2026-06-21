@@ -213,6 +213,34 @@ writes from separate connections without contention.
 
 ---
 
+## v1.1.6 — 2026-06-21 — Python binding surface: bounded reads + streaming iterators
+
+**fossic-py** gains the bounded read and streaming iterator surface introduced in v1.1.3–v1.1.5.
+
+### New types (fossic-py)
+- `ReadOutcome` — tagged-union class; `.is_truncated`, `.complete`, `.results`, `.reason`, `.next_cursor`
+- `TruncationCursor` — opaque; `.to_bytes()` / classmethod `.from_bytes(b)`
+- `SamplingMode` — static constructors `.exhaustive()`, `.breadth_first(max_per_level=N)`, `.adaptive(target_count=N)`
+- `RangeIter`, `CorrelationIter`, `CausationIter` — Python iterators backed by Rust batch-fetch iterators
+
+### New methods on `Store` (fossic-py)
+- `read_range_bounded(query, max_results, max_bytes, cursor)` → `ReadOutcome`
+- `read_by_correlation_bounded(correlation_id, max_results, max_bytes, cursor)` → `ReadOutcome`
+- `walk_causation_bounded(start, direction, max_depth, sampling, max_results, max_bytes, cursor)` → `ReadOutcome`
+- `read_range_iter(query)` → `RangeIter`
+- `read_by_correlation_iter(correlation_id)` → `CorrelationIter`
+- `walk_causation_iter(start, direction, max_depth, sampling)` → `CausationIter`
+
+### Notes
+- `ReadOutcome.next_cursor` is `None` for `aggregate_bounded` (cursor is `Option` at Rust level; Python surface mirrors this exactly)
+- `PyOpenOptions` does not yet expose `default_max_results` / `default_max_bytes` — two test cases are explicitly skipped
+- Streaming iterators release the pool connection before each Python yield — same invariant as v1.1.5
+
+### Test coverage
+`fossic-py/tests/test_bounded.py` — 20 tests, parity with `tests/bounded_foundation.rs` and `tests/bounded_reads.rs`
+
+---
+
 ## v1.1.5 — 2026-06-21 — Bounded Resource API: streaming iterators
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.1.5.md`
