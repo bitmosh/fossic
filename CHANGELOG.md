@@ -5,6 +5,30 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.7.1 — 2026-06-21 — D2 core: HnswProvider live implementation
+
+**Pass report:** `docs/aseptic/blast-radius/pass-1.7.1.md`
+
+### fossic-similarity-hnsw: full HNSW implementation
+
+- `HnswIndex` enum — typed wrapper over hnsw_rs `Hnsw` with one variant per distance metric (`Cosine`, `Euclidean`, `InnerProduct`); all search/insert operations dispatched through enum arms
+- `HnswInner` struct — holds `HnswIndex`, `usize_to_event_id: Vec<EventId>` (reverse lookup from hnsw_rs DataId → fossic EventId), `event_id_to_stream_id: HashMap<EventId, String>` (stream-pattern filtering), `next_id: usize` (monotonically incrementing insert counter)
+- `SimilaritySearchProvider::index` — validates dimensions, lazy-inits `HnswInner`, inserts into hnsw_rs and pushes to `usize_to_event_id`
+- `SimilaritySearchProvider::query` — validates dimensions, computes `internal_k = k × fudge_factor` when `stream_pattern` is set, calls `hnsw.search`, filters by `fossic::glob::matches`, returns top-k as `Vec<SimilarityHit>`
+- `HnswProvider::index_with_stream_id` (inherent) — also populates `event_id_to_stream_id` for stream-pattern filtering (CP-D2-2 workaround)
+- `HnswProvider::len() -> usize` (inherent) — delegates to `hnsw.get_nb_point()`
+- `HnswProvider::remove()` (inherent) — returns `HnswError::Hnsw("not supported")` with explanation; hnsw_rs exposes no delete API
+
+### CP notes
+
+- **CP-D2-2:** `SimilaritySearchProvider::index` does not carry `stream_id`. Events indexed via the trait-only path have no entry in `event_id_to_stream_id` and are excluded from stream-pattern filtered queries. Use `index_with_stream_id` when stream-pattern filtering is required. Filed and documented in provider.rs.
+
+### Tests
+
+11 integration tests in `crates/fossic-similarity-hnsw/tests/integration.rs`: roundtrip, empty-index, len, dimension validation (index + query), zero-k, stream-pattern glob filtering, multi-stream glob, fudge-factor-exhausted returns empty, trait-indexed events excluded from stream filter, remove unsupported.
+
+---
+
 ## v1.7.0 — 2026-06-21 — D2 begins: fossic-similarity-hnsw foundation
 
 ### New sibling crate
@@ -23,6 +47,7 @@ Format: semantic version sections, newest first. Each section links to the pass 
 ### Version alignment
 
 - All four existing crates bumped from misaligned versions to `1.6.0` as Phase 1 close formality
+- Note for future readers: fossic-py, fossic-node, and fossic-tauri were at `0.1.0` before v1.7.0 (independent versioning during early development); v1.7.0 aligns all five crates to the fossic core version
 
 ---
 
