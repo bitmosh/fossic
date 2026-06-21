@@ -1,7 +1,7 @@
 use fossic::{
     Append, OpenOptions, ReadQuery, Store, SubscribeQuery, SubscriptionHandler, SubscriptionMode,
+    StoredEvent,
 };
-use fossic::StoredEvent;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, Mutex,
@@ -805,5 +805,112 @@ fn glob_sub_receives_events_on_new_stream_created_after_subscription() {
     assert!(
         wait_for(|| count.load(Ordering::Relaxed) >= 1, 2000),
         "glob sub must receive first event on stream created after subscription"
+    );
+}
+
+// ── SR-10 A-5: SubscriptionDegraded emitted for sync panics ──────────────────
+
+struct PanicHandler;
+impl SubscriptionHandler for PanicHandler {
+    fn on_event(&self, _event: &StoredEvent) {
+        panic!("deliberate sync subscriber panic — SR-10 A-5");
+    }
+}
+
+struct NormalCountHandler {
+    count: Arc<AtomicU64>,
+}
+impl SubscriptionHandler for NormalCountHandler {
+    fn on_event(&self, _event: &StoredEvent) {
+        self.count.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[test]
+fn sync_panic_subscriber_marked_degraded() {
+    let (store, _dir) = open_tmp();
+    decl(&store, "panic/deg");
+
+    let handle = store
+        .subscribe(
+            SubscribeQuery::stream("panic/deg"),
+            SubscriptionMode::Synchronous,
+            PanicHandler,
+        )
+        .unwrap();
+
+    store.append(unique_ev("panic/deg")).unwrap();
+
+    assert!(handle.is_degraded(), "sync-panicking subscriber must be degraded after append");
+}
+
+#[test]
+fn sync_panic_does_not_block_other_subscribers() {
+    let (store, _dir) = open_tmp();
+    decl(&store, "panic/other");
+
+    let _panic_handle = store
+        .subscribe(
+            SubscribeQuery::stream("panic/other"),
+            SubscriptionMode::Synchronous,
+            PanicHandler,
+        )
+        .unwrap();
+
+    let count = Arc::new(AtomicU64::new(0));
+    let _normal_handle = store
+        .subscribe(
+            SubscribeQuery::stream("panic/other"),
+            SubscriptionMode::Synchronous,
+            NormalCountHandler { count: Arc::clone(&count) },
+        )
+        .unwrap();
+
+    store.append(unique_ev("panic/other")).unwrap();
+
+    assert_eq!(
+        count.load(Ordering::SeqCst),
+        1,
+        "normal sync subscriber must still receive events even when a peer panics",
+    );
+}
+
+#[test]
+fn sync_panic_emits_subscription_degraded_event() {
+    let (store, _dir) = open_tmp();
+    decl(&store, "panic/sysevent");
+
+    let _handle = store
+        .subscribe(
+            SubscribeQuery::stream("panic/sysevent"),
+            SubscriptionMode::Synchronous,
+            PanicHandler,
+        )
+        .unwrap();
+
+    store.append(unique_ev("panic/sysevent")).unwrap();
+
+    // The SubscriptionDegraded event is written by the dispatcher thread after
+    // the write lock is released — poll until it appears in _fossic/system.
+    let found = wait_for(
+        || {
+            store
+                .read_range(ReadQuery {
+                    stream_id: "_fossic/system".into(),
+                    branch: "main".into(),
+                    event_type_filter: Some("SubscriptionDegraded".into()),
+                    from_version: None,
+                    to_version: None,
+                    limit: None,
+                })
+                .map(|v| !v.is_empty())
+                .unwrap_or(false)
+        },
+        2000,
+    );
+
+    assert!(
+        found,
+        "SubscriptionDegraded must be written to _fossic/system when a sync subscriber panics",
     );
 }

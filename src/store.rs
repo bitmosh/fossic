@@ -128,6 +128,11 @@ struct StoreInner {
     upcasters: RwLock<UpcasterRegistry>,
     sub_registry: Arc<SubscriptionRegistry>,
     dispatch_tx: crossbeam_channel::Sender<StoredEvent>,
+    /// Channel for notifying the dispatcher thread of sync-subscriber degradations.
+    /// Each tuple is (sub_id, stream_id, branch, dropped_version). The dispatcher
+    /// drains this after each PostCommit fan-out to emit SubscriptionDegraded events
+    /// for sync panics (SR-10 A-5).
+    sync_degraded_tx: crossbeam_channel::Sender<(u64, String, String, u64)>,
     _wal_watcher: Option<WalWatcher>,
     /// Cached ancestor chains keyed by (stream_id, branch_id). Invalidated (per stream)
     /// when a new branch is created so the next resolution re-reads from the DB.
@@ -243,7 +248,9 @@ impl Store {
         let dispatch_hwm = Arc::new(AtomicUsize::new(0));
 
         let quiescence = Arc::new(crate::executor::QuiescenceMonitor::new());
-        start_dispatcher(path.clone(), dispatch_rx, Arc::clone(&sub_registry), Arc::clone(&quiescence));
+        let (sync_degraded_tx, sync_degraded_rx) =
+            crossbeam_channel::unbounded::<(u64, String, String, u64)>();
+        start_dispatcher(path.clone(), dispatch_rx, sync_degraded_rx, Arc::clone(&sub_registry), Arc::clone(&quiescence));
 
         let wal_watcher = WalWatcher::start(
             path.clone(),
@@ -284,6 +291,7 @@ impl Store {
             upcasters: RwLock::new(UpcasterRegistry::default()),
             sub_registry,
             dispatch_tx,
+            sync_degraded_tx,
             _wal_watcher: wal_watcher,
             branch_cache: RwLock::new(BTreeMap::new()),
             reducers: RwLock::new(ReducerRegistry::default()),
@@ -376,24 +384,29 @@ impl Store {
         let (payload_val, payload_bytes) =
             self.prepare_payload(&a.stream_id, &a.event_type, &a.payload)?;
 
-        let (event_id, post_commit) = {
+        let (event_id, post_commit, sync_degraded) = {
             let mut conn = self.lock()?;
             let outcome: AppendOutcome =
                 append_impl(&mut conn, &a, payload_val, payload_bytes)?;
 
-            let stored = if outcome.is_new && has_subs && !is_system {
+            let (stored, degraded_ids) = if outcome.is_new && has_subs && !is_system {
                 let s = build_stored_event(&outcome, &a);
-                self.inner.sub_registry.dispatch_sync(&s);
-                Some(s)
+                let ids = self.inner.sub_registry.dispatch_sync(&s);
+                (Some(s), ids)
             } else {
-                None
+                (None, Vec::new())
             };
 
-            (outcome.event_id, stored)
+            (outcome.event_id, stored, degraded_ids)
         }; // conn lock released
 
         self.inner.quiescence.note_write();
 
+        if let Some(ref s) = post_commit {
+            for sub_id in sync_degraded {
+                let _ = self.inner.sync_degraded_tx.send((sub_id, s.stream_id.clone(), s.branch.clone(), s.version));
+            }
+        }
         if let Some(s) = post_commit {
             let depth = self.inner.dispatch_tx.len() + 1;
             self.inner.dispatch_channel_high_water_mark.fetch_max(depth, Ordering::Relaxed);
@@ -414,28 +427,36 @@ impl Store {
             .map(|a| self.prepare_payload(&a.stream_id, &a.event_type, &a.payload))
             .collect::<Result<_, _>>()?;
 
-        let (ids, post_commits) = {
+        let (ids, post_commits, sync_degraded) = {
             let mut conn = self.lock()?;
             let outcomes = append_batch_impl(&mut conn, appends, &prepared)?;
 
             let mut ids = Vec::with_capacity(outcomes.len());
             let mut post_commits = Vec::new();
+            let mut sync_degraded: Vec<(u64, String, String, u64)> = Vec::new();
 
             for (outcome, a) in outcomes.iter().zip(appends.iter()) {
                 ids.push(outcome.event_id);
                 let is_system = a.stream_id.starts_with("_fossic/");
                 if outcome.is_new && has_subs && !is_system {
                     let s = build_stored_event(outcome, a);
-                    self.inner.sub_registry.dispatch_sync(&s);
+                    let newly_deg = self.inner.sub_registry.dispatch_sync(&s);
+                    for sub_id in newly_deg {
+                        sync_degraded.push((sub_id, s.stream_id.clone(), s.branch.clone(), s.version));
+                    }
                     post_commits.push(s);
                 }
             }
 
-            (ids, post_commits)
+            (ids, post_commits, sync_degraded)
         }; // conn lock released
 
         if !ids.is_empty() {
             self.inner.quiescence.note_write();
+        }
+
+        for (sub_id, stream_id, branch, version) in sync_degraded {
+            let _ = self.inner.sync_degraded_tx.send((sub_id, stream_id, branch, version));
         }
 
         for s in post_commits {
@@ -480,22 +501,22 @@ impl Store {
         let (payload_val, payload_bytes) =
             self.prepare_payload(&a.stream_id, &a.event_type, &a.payload)?;
 
-        let (event_id_opt, post_commit) = {
+        let (event_id_opt, post_commit, sync_degraded) = {
             let mut conn = self.lock()?;
             let outcome =
                 append_if_impl(&mut conn, &a, payload_val, payload_bytes, condition)?;
 
             match outcome {
-                None => (None, None),
+                None => (None, None, Vec::new()),
                 Some(outcome) => {
-                    let stored = if outcome.is_new && has_subs && !is_system {
+                    let (stored, degraded_ids) = if outcome.is_new && has_subs && !is_system {
                         let s = build_stored_event(&outcome, &a);
-                        self.inner.sub_registry.dispatch_sync(&s);
-                        Some(s)
+                        let ids = self.inner.sub_registry.dispatch_sync(&s);
+                        (Some(s), ids)
                     } else {
-                        None
+                        (None, Vec::new())
                     };
-                    (Some(outcome.event_id), stored)
+                    (Some(outcome.event_id), stored, degraded_ids)
                 }
             }
         }; // conn lock released
@@ -504,6 +525,11 @@ impl Store {
             self.inner.quiescence.note_write();
         }
 
+        if let Some(ref s) = post_commit {
+            for sub_id in sync_degraded {
+                let _ = self.inner.sync_degraded_tx.send((sub_id, s.stream_id.clone(), s.branch.clone(), s.version));
+            }
+        }
         if let Some(s) = post_commit {
             let depth = self.inner.dispatch_tx.len() + 1;
             self.inner.dispatch_channel_high_water_mark.fetch_max(depth, Ordering::Relaxed);
@@ -1243,7 +1269,7 @@ impl Store {
         let events_applied = events.len() as u32;
         for event in &events {
             let t0 = crate::schema::now_us();
-            state_bytes = reducer.apply_bytes(&state_bytes, &event.payload)?;
+            state_bytes = apply_reducer_guarded(&*reducer, &state_bytes, event, stream_id)?;
             let cost_us = (crate::schema::now_us() - t0).max(0) as u64;
             self.update_state_monitor(stream_id, branch, state_bytes.len(), cost_us);
         }
@@ -1267,7 +1293,7 @@ impl Store {
             Some(version),
         )?;
         for event in &events {
-            state_bytes = reducer.apply_bytes(&state_bytes, &event.payload)?;
+            state_bytes = apply_reducer_guarded(&*reducer, &state_bytes, event, stream_id)?;
         }
         rmp_serde::from_slice(&state_bytes).map_err(Error::MsgpackDecode)
     }
@@ -1280,7 +1306,7 @@ impl Store {
         let events_applied = events.len() as u32;
         for event in &events {
             let t0 = crate::schema::now_us();
-            state_bytes = reducer.apply_bytes(&state_bytes, &event.payload)?;
+            state_bytes = apply_reducer_guarded(&*reducer, &state_bytes, event, stream_id)?;
             let cost_us = (crate::schema::now_us() - t0).max(0) as u64;
             self.update_state_monitor(stream_id, branch, state_bytes.len(), cost_us);
         }
@@ -1300,7 +1326,7 @@ impl Store {
         let (mut state_bytes, events) =
             self.compute_state_bytes(&reducer, stream_id, branch, Some(version))?;
         for event in &events {
-            state_bytes = reducer.apply_bytes(&state_bytes, &event.payload)?;
+            state_bytes = apply_reducer_guarded(&*reducer, &state_bytes, event, stream_id)?;
         }
         Ok(state_bytes)
     }
@@ -1327,7 +1353,7 @@ impl Store {
         let (mut state_bytes, events) =
             self.compute_state_bytes(&reducer, stream_id, branch, Some(version))?;
         for event in &events {
-            state_bytes = reducer.apply_bytes(&state_bytes, &event.payload)?;
+            state_bytes = apply_reducer_guarded(&*reducer, &state_bytes, event, stream_id)?;
         }
         rmp_serde::from_slice(&state_bytes).map_err(Error::MsgpackDecode)
     }
@@ -1388,7 +1414,7 @@ impl Store {
 
         let mut state = state_bytes;
         for event in &events {
-            state = reducer.apply_bytes(&state, &event.payload)?;
+            state = apply_reducer_guarded(&*reducer, &state, event, stream_id)?;
         }
 
         let conn = self.lock()?;
@@ -1915,7 +1941,7 @@ impl crate::executor::StoreOps for StoreInner {
 
         let mut state = state_bytes;
         for event in &events {
-            state = reducer.apply_bytes(&state, &event.payload)?;
+            state = apply_reducer_guarded(&*reducer, &state, event, stream_id)?;
         }
 
         let conn = self.conn.lock()
@@ -2111,6 +2137,39 @@ impl std::iter::FusedIterator for CausationIter {}
 
 // ── Module-level helpers ──────────────────────────────────────────────────────
 
+/// Wrap one `reducer.apply_bytes` call with panic isolation.
+///
+/// On panic the caller's thread continues; the error carries stream/reducer/event context
+/// for structured diagnosis (SR-10 A-11).
+fn apply_reducer_guarded(
+    reducer: &dyn crate::reducers::BoxedReducer,
+    state_bytes: &[u8],
+    event: &StoredEvent,
+    stream_id: &str,
+) -> Result<Vec<u8>, Error> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        reducer.apply_bytes(state_bytes, &event.payload)
+    })) {
+        Ok(inner) => inner,
+        Err(panic_val) => {
+            let msg = if let Some(s) = panic_val.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_val.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "<non-string panic payload>".to_string()
+            };
+            let eid_hex: String = event.id.as_bytes().iter().map(|b| format!("{b:02x}")).collect();
+            Err(Error::ReducerPanicked {
+                stream_id: stream_id.to_string(),
+                reducer_name: reducer.name().to_string(),
+                event_id_hex: eid_hex,
+                panic_message: msg,
+            })
+        }
+    }
+}
+
 /// Build a `StoredEvent` from append outcome + original Append, without a DB round-trip.
 fn build_stored_event(outcome: &AppendOutcome, a: &Append) -> StoredEvent {
     StoredEvent {
@@ -2136,6 +2195,7 @@ fn build_stored_event(outcome: &AppendOutcome, a: &Append) -> StoredEvent {
 fn start_dispatcher(
     db_path: PathBuf,
     dispatch_rx: crossbeam_channel::Receiver<StoredEvent>,
+    sync_degraded_rx: crossbeam_channel::Receiver<(u64, String, String, u64)>,
     registry: Arc<SubscriptionRegistry>,
     quiescence: Arc<crate::executor::QuiescenceMonitor>,
 ) {
@@ -2153,6 +2213,7 @@ fn start_dispatcher(
             quiescence.note_dispatch();
 
             if let Some(ref mut writer) = sys_writer {
+                // PostCommit overflow degradations from this event.
                 for sub_id in newly_degraded {
                     writer.emit_subscription_degraded(
                         sub_id,
@@ -2160,6 +2221,12 @@ fn start_dispatcher(
                         &event.branch,
                         event.version,
                     );
+                }
+                // Sync-subscriber panic degradations forwarded from append paths (SR-10 A-5).
+                // Drained here (after write lock released) to keep system event emission
+                // off the write hot path.
+                while let Ok((sub_id, stream_id, branch, version)) = sync_degraded_rx.try_recv() {
+                    writer.emit_subscription_degraded(sub_id, &stream_id, &branch, version);
                 }
             }
         }

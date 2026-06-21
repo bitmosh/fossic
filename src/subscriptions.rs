@@ -175,7 +175,12 @@ impl SubscriptionRegistry {
 
     /// Fire all Synchronous subscribers. Panics are caught; subscription marked degraded.
     /// Must be called while the write lock is held (caller's responsibility).
-    pub fn dispatch_sync(&self, event: &StoredEvent) {
+    ///
+    /// Returns the IDs of any subscribers that transitioned to degraded during this call.
+    /// Callers should forward these to the dispatcher thread after releasing the write lock
+    /// so `SubscriptionDegraded` events are emitted to `_fossic/system` (SR-10 A-5).
+    pub fn dispatch_sync(&self, event: &StoredEvent) -> Vec<u64> {
+        let mut newly_degraded: Vec<u64> = Vec::new();
         let entries = self.entries.read();
         for (id, entry) in entries.iter() {
             if entry.branch != event.branch {
@@ -210,9 +215,11 @@ impl SubscriptionRegistry {
                         id, msg
                     );
                     degraded_flag.store(true, Ordering::Release);
+                    newly_degraded.push(*id);
                 }
             }
         }
+        newly_degraded
     }
 
     /// Try to send to all PostCommit subscribers. Returns list of newly degraded IDs.
