@@ -1,7 +1,10 @@
 use std::{
     collections::{BTreeMap, HashMap},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, RwLock},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex, MutexGuard, RwLock,
+    },
 };
 
 use rusqlite::{Connection, TransactionBehavior};
@@ -83,6 +86,9 @@ struct StoreInner {
     /// contend with the write mutex or with each other.
     read_pool_rx: crossbeam_channel::Receiver<Connection>,
     read_pool_tx: crossbeam_channel::Sender<Connection>,
+    /// Peak depth ever observed in the post-commit dispatch channel.
+    /// Updated at each `dispatch_tx.send` site. Diagnostic / observability only.
+    dispatch_channel_high_water_mark: Arc<AtomicUsize>,
 }
 
 // ── Public Store ──────────────────────────────────────────────────────────────
@@ -149,6 +155,7 @@ impl Store {
         let sub_registry = SubscriptionRegistry::new();
         let (dispatch_tx, dispatch_rx) =
             crossbeam_channel::unbounded::<StoredEvent>();
+        let dispatch_hwm = Arc::new(AtomicUsize::new(0));
 
         start_dispatcher(path.clone(), dispatch_rx, Arc::clone(&sub_registry));
 
@@ -194,6 +201,7 @@ impl Store {
                 similarity_provider,
                 read_pool_rx,
                 read_pool_tx,
+                dispatch_channel_high_water_mark: dispatch_hwm,
             }),
         })
     }
@@ -253,6 +261,8 @@ impl Store {
         }; // conn lock released
 
         if let Some(s) = post_commit {
+            let depth = self.inner.dispatch_tx.len() + 1;
+            self.inner.dispatch_channel_high_water_mark.fetch_max(depth, Ordering::Relaxed);
             let _ = self.inner.dispatch_tx.send(s);
         }
 
@@ -291,6 +301,8 @@ impl Store {
         }; // conn lock released
 
         for s in post_commits {
+            let depth = self.inner.dispatch_tx.len() + 1;
+            self.inner.dispatch_channel_high_water_mark.fetch_max(depth, Ordering::Relaxed);
             let _ = self.inner.dispatch_tx.send(s);
         }
 
@@ -351,6 +363,8 @@ impl Store {
         }; // conn lock released
 
         if let Some(s) = post_commit {
+            let depth = self.inner.dispatch_tx.len() + 1;
+            self.inner.dispatch_channel_high_water_mark.fetch_max(depth, Ordering::Relaxed);
             let _ = self.inner.dispatch_tx.send(s);
         }
 
@@ -987,6 +1001,20 @@ impl Store {
                 feature: "similarity_query: no SimilaritySearchProvider wired in OpenOptions",
             }),
         }
+    }
+
+    // ── Observability ─────────────────────────────────────────────────────────
+
+    /// Current number of undelivered events queued in the post-commit dispatch channel.
+    pub fn dispatch_channel_pressure(&self) -> usize {
+        self.inner.dispatch_tx.len()
+    }
+
+    /// Historical peak depth ever observed in the post-commit dispatch channel
+    /// since this store instance was opened. Useful for tuning queue sizes and
+    /// detecting back-pressure under high write load.
+    pub fn dispatch_channel_high_water_mark(&self) -> usize {
+        self.inner.dispatch_channel_high_water_mark.load(Ordering::Relaxed)
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────

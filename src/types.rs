@@ -209,6 +209,12 @@ pub struct OpenOptions {
     /// read methods return `Error::PoolExhausted`. Set lower in tests to make exhaustion
     /// observable without a 30-second wait.
     pub read_pool_timeout_ms: u64,
+    /// Default upper bound on the number of events returned by a single bounded read.
+    /// `None` means no default result-count limit (callers must supply a per-call budget).
+    pub default_max_results: Option<usize>,
+    /// Default upper bound on the total payload bytes returned by a single bounded read.
+    /// `None` means no default byte-size limit.
+    pub default_max_bytes: Option<usize>,
 }
 
 impl Default for OpenOptions {
@@ -220,6 +226,8 @@ impl Default for OpenOptions {
             similarity_provider: None,
             read_pool_size: 4,
             read_pool_timeout_ms: 30_000,
+            default_max_results: None,
+            default_max_bytes: None,
         }
     }
 }
@@ -293,4 +301,99 @@ pub struct SnapshotInfo {
     pub reducer_version: u32,
     pub state_schema_version: u32,
     pub created_at: i64,
+}
+
+// ── Bounded read types ────────────────────────────────────────────────────────
+
+/// Which budget limit was hit during a bounded read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BudgetKind {
+    /// The result-count ceiling (`default_max_results` / per-call limit) was reached.
+    ResultCount,
+    /// The byte-size ceiling (`default_max_bytes` / per-call limit) was reached.
+    ByteSize,
+}
+
+/// Outcome of a bounded read operation.
+#[derive(Debug)]
+pub enum ReadOutcome<T> {
+    /// All matching events were returned; no truncation occurred.
+    Complete(T),
+    /// The result was truncated by a budget limit. Feed `cursor` to the
+    /// same bounded read method to resume from where this one stopped.
+    Truncated {
+        data: T,
+        cursor: TruncationCursor,
+        reason: TruncationReason,
+    },
+}
+
+/// Why a bounded read was truncated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TruncationReason {
+    ResultCount,
+    ByteSize,
+}
+
+/// Opaque resume token returned when a bounded read is truncated.
+///
+/// The internal encoding is msgpack; callers must treat it as opaque bytes
+/// and only pass it back to the same bounded read method that produced it.
+#[derive(Debug)]
+pub struct TruncationCursor(pub(crate) Vec<u8>);
+
+impl TruncationCursor {
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        TruncationCursor(bytes)
+    }
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+/// Private inner cursor state. Serialized to/from msgpack inside `TruncationCursor`.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub(crate) enum CursorInner {
+    /// Resume point for a `read_range`-style bounded read.
+    Range {
+        stream_id: String,
+        branch: String,
+        next_version: u64,
+    },
+    /// Resume point for a `read_by_correlation`-style bounded read.
+    Correlation {
+        correlation_id: [u8; 32],
+        after_timestamp_us: i64,
+    },
+    /// Resume point for a `walk_causation`-style bounded read.
+    Causation {
+        start_id: [u8; 32],
+        depth: usize,
+        last_seen_id: [u8; 32],
+    },
+}
+
+impl TruncationCursor {
+    pub(crate) fn encode(inner: &CursorInner) -> Result<Self, crate::error::Error> {
+        let bytes = rmp_serde::to_vec(inner).map_err(crate::error::Error::MsgpackEncode)?;
+        Ok(TruncationCursor(bytes))
+    }
+
+    pub(crate) fn decode(&self) -> Result<CursorInner, crate::error::Error> {
+        rmp_serde::from_slice(&self.0).map_err(crate::error::Error::MsgpackDecode)
+    }
+}
+
+/// Sampling strategy for graph-walk bounded reads (used by `walk_causation` bounded variant).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SamplingMode {
+    /// Return every event up to the budget; no sampling.
+    Exhaustive,
+    /// Visit at most `max_per_level` events per BFS depth level.
+    BreadthFirst { max_per_level: usize },
+    /// Aim for approximately `target_count` events, adjusting depth cutoff dynamically.
+    Adaptive { target_count: usize },
 }

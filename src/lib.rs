@@ -29,7 +29,8 @@ pub use store::Store;
 pub use subscriptions::{SubscribeQuery, SubscriptionHandle, SubscriptionHandler, SubscriptionMode};
 pub use transforms::PayloadTransform;
 pub use types::{
-    Append, BranchInfo, CheckpointMode, CreateBranch, EncryptionMode, EventId, FirstOpenPolicy,
-    OpenOptions, ReadQuery, SnapshotInfo, StoredEvent, StreamInfo,
+    Append, BranchInfo, BudgetKind, CheckpointMode, CreateBranch, EncryptionMode, EventId,
+    FirstOpenPolicy, OpenOptions, ReadOutcome, ReadQuery, SamplingMode, SnapshotInfo, StoredEvent,
+    StreamInfo, TruncationCursor, TruncationReason,
 };
 pub use upcasters::Upcaster;

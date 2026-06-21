@@ -1,3 +1,4 @@
+use crate::types::BudgetKind;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -79,6 +80,9 @@ pub enum Error {
 
     #[error("read pool exhausted: all {pool_size} connections busy after {timeout_ms}ms; increase OpenOptions::read_pool_size")]
     PoolExhausted { pool_size: usize, timeout_ms: u64 },
+
+    #[error("read budget exceeded: {budget:?} limit is {limit}")]
+    ReadBudgetExceeded { budget: BudgetKind, limit: usize },
 
     #[error("internal error: {0}")]
     Internal(String),
