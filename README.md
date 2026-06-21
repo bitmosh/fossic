@@ -14,6 +14,7 @@ Storage is a single SQLite file with WAL mode. No daemon, no separate server.
 | `fossic-py` | `fossic-py/` | PyO3 Python bindings |
 | `fossic-node` | `fossic-node/` | napi-rs Node.js bindings |
 | `fossic-tauri` | `crates/fossic-tauri/` | Tauri 2 IPC companion crate |
+| `fossic-similarity-hnsw` | `crates/fossic-similarity-hnsw/` | HNSW-backed `SimilaritySearchProvider` via hnsw_rs |
 
 ## Quick start (Rust)
 
@@ -150,6 +151,22 @@ Iterators do not support resume (cursor resumption). For resumable streaming, us
 ### aggregate_bounded
 
 `aggregate_bounded` does not produce a cursor on truncation — fold-resume would require injecting partial aggregator state into a new instance, which the `Aggregate` trait does not yet support. If the result is truncated, the `cursor` field is always `None`. Full cursor-based resume for aggregates is v1.2.x work.
+
+## Similarity search
+
+Wire in `fossic-similarity-hnsw` for semantic search over event payloads:
+
+```rust
+use fossic_similarity_hnsw::{HnswConfig, HnswProvider};
+let config = HnswConfig { dimensions: 1024, ..HnswConfig::default() };
+let provider = Arc::new(HnswProvider::new("store.db", config)?);
+let store = Store::open("store.db", OpenOptions {
+    similarity_provider: Some(provider.clone()),
+    ..Default::default()
+})?;
+```
+
+See [`crates/fossic-similarity-hnsw/README.md`](crates/fossic-similarity-hnsw/README.md) for the full API, persistence model, and Python quick start.
 
 ## Key concepts
 

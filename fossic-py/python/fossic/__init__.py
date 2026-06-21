@@ -111,6 +111,7 @@ except ImportError:
 
 from fossic._worker import SubscriptionWorker
 from fossic.relay import RelayAgent, RelayConfig, relay_append, run_relay  # type: ignore[import]
+from fossic.similarity import HnswProvider, SimilarityQuery  # type: ignore[import]
 
 
 # ── Python-level SubscriptionHandle ──────────────────────────────────────────
@@ -679,4 +680,7 @@ __all__ = [
     "RelayAgent",
     "relay_append",
     "run_relay",
+    # Similarity
+    "HnswProvider",
+    "SimilarityQuery",
 ]

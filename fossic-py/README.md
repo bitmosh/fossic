@@ -160,6 +160,52 @@ store.walk_causation_iter(start, direction="forward", max_depth=100,
 
 `default_max_results` and `default_max_bytes` store-level defaults are **not yet exposed** in the Python `OpenOptions`. Per-call limits work; if both are absent, the Rust layer applies no budget (unbounded behavior). This will be resolved in a follow-up pass.
 
+## Similarity search (HNSW)
+
+Wire in vector similarity via `fossic.similarity.HnswProvider` — backed by the `fossic-similarity-hnsw` Rust crate:
+
+```python
+from fossic.similarity import HnswProvider, SimilarityQuery
+
+# Open (or create) the provider. Index files live in hnsw/ beside store.db.
+provider = HnswProvider("store.db", dimensions=1024)
+
+# Index an event with its stream ID for stream-pattern filtering.
+provider.index_with_stream_id(event_id_bytes, "cerebra/lattice/abc", embedding)
+
+# Query k nearest neighbours.
+sq = SimilarityQuery(embedding=query_vec, k=10, stream_pattern="cerebra/lattice/*")
+for hit in provider.query(sq.as_dict()):
+    print(hit["event_id"].hex(), hit["score"])
+
+# Persist synchronously.
+provider.save()
+
+# Or schedule a deferred background save (fires after quiescence_window_ms idle):
+provider.schedule_save(priority="low")
+```
+
+The `HnswProvider` class is also importable directly from `fossic`:
+
+```python
+from fossic import HnswProvider, SimilarityQuery
+```
+
+**Config kwargs** (all optional except `dimensions`):
+
+| Kwarg | Default | Notes |
+|---|---|---|
+| `dimensions` | — | **Required.** Must match your embedding model. |
+| `distance` | `"cosine"` | `"cosine"`, `"euclidean"` / `"l2"`, `"inner_product"` / `"dot"` |
+| `max_elements` | 100 000 | Capacity hint |
+| `ef_construction` | 200 | Build-time recall knob |
+| `m` | 16 | Graph degree per node |
+| `ef_search` | 50 | Query-time recall knob |
+| `stream_filter_fudge_factor` | 2 | Candidate expansion for stream-filtered queries |
+| `quiescence_window_ms` | 2 000 | Idle window before `schedule_save` fires; lower in tests |
+
+See [`crates/fossic-similarity-hnsw/README.md`](../crates/fossic-similarity-hnsw/README.md) for the full Rust API, persistence model, and performance notes.
+
 ## Requirements
 
 - Python 3.12+

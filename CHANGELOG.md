@@ -5,6 +5,56 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.7.4 — 2026-06-21 — D2 Python binding: HnswProvider + docs
+
+**Pass report:** `docs/aseptic/blast-radius/pass-1.7.4.md`
+
+### fossic-py: fossic.similarity.HnswProvider
+
+PyO3 binding exposing the full `HnswProvider` API to Python. Construction creates both the HNSW index and an internal `Store` (executor host for `schedule_save`).
+
+**Methods:**
+- `HnswProvider(db_path, dimensions, *, distance, max_elements, ef_construction, m, ef_search, stream_filter_fudge_factor, quiescence_window_ms)` — construction
+- `.index(event_id: bytes, embedding: list[float])` — trait path (no stream_id)
+- `.index_with_stream_id(event_id: bytes, stream_id: str, embedding: list[float])` — inherent, for stream-pattern filtering
+- `.query(query: dict) -> list[dict]` — dict keys: `embedding`, `k`, `stream_pattern?`; returns `[{"event_id": bytes, "score": float}]`
+- `.save()` — synchronous `save_to_disk`
+- `.schedule_save(priority: str = "low")` — deferred save via background executor; no-op when dirty=False or save_pending=True
+- `.len() -> int`, `.is_empty() -> bool`
+- `.remove(event_id: bytes)` — always raises (hnsw_rs v1 limitation)
+- `.is_dirty() -> bool`, `.is_save_pending() -> bool`
+
+**Import paths:**
+```python
+from fossic.similarity import HnswProvider, SimilarityQuery
+from fossic import HnswProvider, SimilarityQuery
+```
+
+### fossic-py: fossic.similarity.SimilarityQuery
+
+Python dataclass convenience wrapper. `SimilarityQuery(embedding, k, stream_pattern=None).as_dict()` produces the dict `HnswProvider.query()` expects.
+
+### Workspace Cargo.toml
+
+`fossic-similarity-hnsw` added to `[workspace.dependencies]`.
+
+### Documentation
+
+- `crates/fossic-similarity-hnsw/README.md` — full README: purpose, Rust quick start, Python quick start, HnswConfig fields, persistence model, background save pattern, two-file format, panic recovery, performance notes, system events
+- `README.md` — workspace crate table updated, similarity quick-start section added
+- `fossic-py/README.md` — HNSW section added with Python quick start and config table
+
+### Tests
+
+17 Python integration tests in `fossic-py/tests/test_similarity.py` with parity coverage against the Rust integration suite:
+- Basic ops: empty query, index+query, wrong dims, zero-k, len/is_empty, 32-byte constraint, top-k bound, remove raises
+- Persistence: round-trip, empty save, dirty-flag lifecycle
+- SimilarityQuery: as_dict, stream_pattern field
+- Stream filtering: index_with_stream_id filters correctly
+- Background scheduling: fires when dirty, noop when not dirty, storm prevention
+
+---
+
 ## v1.7.3 — 2026-06-21 — D2 scheduling: background indexing via TaskKind::Custom
 
 **Pass report:** `docs/aseptic/blast-radius/pass-1.7.3.md`

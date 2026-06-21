@@ -1,5 +1,6 @@
 mod cce;
 mod errors;
+mod similarity;
 mod store;
 mod subscriptions;
 mod types;
@@ -8,6 +9,7 @@ use pyo3::prelude::*;
 
 use cce::{cce_encode_bytes_raw, cce_encode_f64_bits, cce_encode_value, compute_event_id};
 use errors::register as register_errors;
+use similarity::PyHnswProvider;
 use store::{PyCausationIter, PyCorrelationIter, PyRangeIter, PyStore};
 use subscriptions::PyRawSubscriptionHandle;
 use types::{
@@ -20,6 +22,7 @@ use types::{
 fn _fossic(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Classes
     m.add_class::<PyStore>()?;
+    m.add_class::<PyHnswProvider>()?;
     m.add_class::<PyEventId>()?;
     m.add_class::<PyStoredEvent>()?;
     m.add_class::<PyAppend>()?;
