@@ -36,6 +36,84 @@ fn main() {
 | `fossic_unsubscribe` | `subscription_id` | — |
 | `fossic_read_by_correlation` | `correlation_id` (hex) | `SerializedEvent[]` |
 | `fossic_walk_causation` | `start, direction, max_depth` | `SerializedEvent[]` |
+| `fossic_read_range_bounded` | `stream_id, branch?, from_version?, to_version?, event_type_filter?, max_results?, max_bytes?` | `ReadOutcome` |
+| `fossic_read_range_from_cursor` | same + `cursor` (base64) | `ReadOutcome` |
+| `fossic_read_by_correlation_bounded` | `correlation_id, max_results?, max_bytes?` | `ReadOutcome` |
+| `fossic_read_by_correlation_from_cursor` | same + `cursor` (base64) | `ReadOutcome` |
+| `fossic_walk_causation_bounded` | `start, direction, max_depth?, sampling?, max_results?, max_bytes?` | `ReadOutcome` |
+| `fossic_walk_causation_from_cursor` | same + `cursor` (base64) | `ReadOutcome` |
+| `fossic_aggregate_bounded` | `stream_pattern, branch?, event_type_filter?, from_timestamp_us?, to_timestamp_us?, indexed_tags_filter?, max_events_scanned?, max_bytes?` | `AggregateOutcome` |
+
+## Bounded read commands
+
+### ReadOutcome shape
+
+All bounded commands return a `ReadOutcome` JSON object:
+
+```typescript
+// Complete — all results fit within the budget
+{ kind: "complete", results: SerializedEvent[] }
+
+// Truncated — budget hit; more results may remain
+{
+  kind: "truncated",
+  results: SerializedEvent[],
+  reason: "result_count" | "byte_size",
+  next_cursor: string   // base64-encoded opaque bytes
+}
+```
+
+`reason` and `next_cursor` are omitted (not `null`) on complete outcomes.
+
+### Cursor resumption
+
+Pass the cursor string back to the corresponding `_from_cursor` command:
+
+```typescript
+import { invoke } from '@tauri-apps/api/core'
+
+const page1 = await invoke('fossic_read_range_bounded', {
+    streamId: 'cerebra/lattice/session_42',
+    maxResults: 500,
+})
+
+if (page1.kind === 'truncated' && page1.next_cursor) {
+    const page2 = await invoke('fossic_read_range_from_cursor', {
+        streamId: 'cerebra/lattice/session_42',
+        maxResults: 500,
+        cursor: page1.next_cursor,
+    })
+}
+```
+
+The `_bounded` command always starts from the beginning. The `_from_cursor` command requires a valid cursor from a prior call to the same query mode.
+
+### SamplingMode for walk_causation
+
+Pass a JSON object as the `sampling` argument:
+
+```typescript
+{ kind: "exhaustive" }                         // full BFS (default if absent)
+{ kind: "breadthFirst", maxPerLevel: 50 }      // BFS capped per level
+{ kind: "adaptive", targetCount: 200 }         // adaptive cap
+```
+
+### fossic_aggregate_bounded
+
+Collects events across streams matching a glob pattern and accumulates them into a flat result array. Unlike the other bounded commands, `next_cursor` is always absent on truncation — fold-resume requires aggregator-state injection, deferred to v1.2.x.
+
+```typescript
+const result = await invoke('fossic_aggregate_bounded', {
+    streamPattern: 'cerebra/lattice/*',
+    maxEventsScan: 5000,
+})
+// result.kind: "complete" | "truncated"
+// result.results: SerializedEvent[]
+```
+
+### Streaming limitation
+
+Tauri IPC is request-response only — there is no native push-event stream for large result sets. Use bounded commands with cursor resumption as the equivalent of streaming. For real-time event delivery, `fossic_subscribe` + the `fossic:event` Tauri event is the correct approach.
 
 ## Push events
 
