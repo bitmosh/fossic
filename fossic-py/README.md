@@ -58,6 +58,108 @@ with store.subscribe(
         process(event)
 ```
 
+## Bounded reads and streaming iterators
+
+### Why bounded variants exist
+
+`read_range` and `walk_causation` load all matching events into memory. On a stream that has grown to millions of events, this is an OOM risk. The bounded variants add a result count and/or byte budget; they return a `ReadOutcome` that tells you whether all results fit or the query was truncated.
+
+### ReadOutcome
+
+```python
+from fossic import Store, ReadQuery, ReadOutcome, TruncationCursor
+
+outcome = store.read_range_bounded(
+    ReadQuery(stream_id="cerebra/lattice/session_42"),
+    max_results=1000,
+)
+
+if outcome.complete:
+    process_all(outcome.results)
+elif outcome.is_truncated:
+    process_page(outcome.results)
+    # outcome.reason: "result_count" | "byte_size"
+    # outcome.next_cursor: TruncationCursor | None
+    if outcome.next_cursor:
+        next_page = store.read_range_bounded(
+            ReadQuery(stream_id="cerebra/lattice/session_42"),
+            max_results=1000,
+            cursor=outcome.next_cursor,
+        )
+```
+
+Properties:
+- `.results` — `list[StoredEvent]`, always present
+- `.is_truncated` — `bool`
+- `.complete` — `bool` (complement of `is_truncated`)
+- `.reason` — `"result_count"` | `"byte_size"` | `None`
+- `.next_cursor` — `TruncationCursor | None`
+
+### TruncationCursor
+
+Cursors are opaque. Pass them back to the next bounded call. Serialize with `.to_bytes()` and reconstruct with `TruncationCursor.from_bytes(b)`:
+
+```python
+# Persist a cursor for later resume:
+cursor_bytes = outcome.next_cursor.to_bytes()
+
+# Restore:
+cursor = TruncationCursor.from_bytes(cursor_bytes)
+next_page = store.read_range_bounded(query, cursor=cursor)
+```
+
+### SamplingMode
+
+```python
+from fossic import SamplingMode
+
+# Full BFS — all reachable nodes up to max_depth (default):
+SamplingMode.exhaustive()
+
+# BFS capped per depth level:
+SamplingMode.breadth_first(max_per_level=50)
+
+# Adaptive — adjusts per-level cap to approach target_count total:
+SamplingMode.adaptive(target_count=200)
+```
+
+### Streaming iterators
+
+Each `__next__()` call fetches a batch of 100 events from the store and releases the read-pool connection before returning. Use standard `for` loops:
+
+```python
+for event in store.read_range_iter(ReadQuery(stream_id="cerebra/lattice/session_42")):
+    process(event)
+
+for event in store.walk_causation_iter(
+    start=root_id,
+    direction="forward",
+    max_depth=100,
+    sampling=SamplingMode.exhaustive(),
+):
+    process(event)
+```
+
+Iterators do not support cursor resume. For resumable streaming, use `read_range_bounded` in a loop.
+
+### Bounded methods on Store
+
+```python
+store.read_range_bounded(query, max_results=None, max_bytes=None, cursor=None) -> ReadOutcome
+store.read_by_correlation_bounded(correlation_id, max_results=None, max_bytes=None, cursor=None) -> ReadOutcome
+store.walk_causation_bounded(start, direction="forward", max_depth=100,
+    sampling=None, max_results=None, max_bytes=None, cursor=None) -> ReadOutcome
+
+store.read_range_iter(query) -> RangeIter
+store.read_by_correlation_iter(correlation_id) -> CorrelationIter
+store.walk_causation_iter(start, direction="forward", max_depth=100,
+    sampling=None) -> CausationIter
+```
+
+### OpenOptions note (CP-FOSSIC-3)
+
+`default_max_results` and `default_max_bytes` store-level defaults are **not yet exposed** in the Python `OpenOptions`. Per-call limits work; if both are absent, the Rust layer applies no budget (unbounded behavior). This will be resolved in a follow-up pass.
+
 ## Requirements
 
 - Python 3.12+
