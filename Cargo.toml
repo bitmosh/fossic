@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "fossic-py", "fossic-node", "crates/fossic-tauri"]
+members = [".", "fossic-py", "fossic-node", "crates/fossic-tauri", "crates/fossic-similarity-hnsw"]
 resolver = "2"
 
 [workspace.dependencies]

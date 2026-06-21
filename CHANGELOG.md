@@ -5,6 +5,27 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.7.0 — 2026-06-21 — D2 begins: fossic-similarity-hnsw foundation
+
+### New sibling crate
+
+- New crate `fossic-similarity-hnsw` in `crates/fossic-similarity-hnsw/`
+- `HnswConfig` builder with sensible defaults; `DistanceMetric::{Cosine, Euclidean, InnerProduct}`; `stream_filter_fudge_factor` knob for stream-pattern-filtered queries
+- `HnswProvider` struct skeleton implementing `SimilaritySearchProvider` trait (`index` + `query`); full HNSW logic lands in v1.7.1
+- `hnsw_rs` as the underlying HNSW implementation
+
+### Substrate extensions
+
+- `SystemStreamWriter` exported from fossic crate (`pub use system_stream::SystemStreamWriter`) — sibling crates can now emit system events
+- `BackgroundExecutor`, `BacklogTask`, `TaskKind`, `TaskPriority` exported from fossic crate — sibling crates can schedule background work
+- `TaskKind::Custom(Arc<dyn Fn() + Send + Sync>)` variant — arbitrary closures schedulable via the Phase 7 background executor
+
+### Version alignment
+
+- All four existing crates bumped from misaligned versions to `1.6.0` as Phase 1 close formality
+
+---
+
 ## v1.6.0 — 2026-06-21 — Phase 1 close: Bounded Resource API
 
 ### Phase 1 closed

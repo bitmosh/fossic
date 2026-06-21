@@ -1,0 +1,22 @@
+[package]
+name = "fossic-similarity-hnsw"
+version = "1.6.0"
+edition = "2021"
+description = "HNSW-backed SimilaritySearchProvider for fossic"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+fossic       = { workspace = true }
+hnsw_rs      = "0.3"
+parking_lot  = { workspace = true }
+serde        = { workspace = true }
+serde_json   = { workspace = true }
+rmp-serde    = { workspace = true }
+thiserror    = "2"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
