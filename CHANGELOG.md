@@ -5,6 +5,45 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.6.0 — 2026-06-21 — Phase 1 close: Bounded Resource API
+
+### Phase 1 closed
+
+Phase 1 ships the OOM safety net and the foundational primitives that Phases 2–5 depend on. All existing v1.0 API call sites continue to work unchanged — the new bounded surface is additive only.
+
+Shipped across v1.1.0 through v1.1.9:
+
+- **v1.1.0** — Foundation types (`ReadOutcome`, `TruncationCursor`, `SamplingMode`, `BudgetKind`), `OpenOptions` defaults, dispatch channel observability, `parking_lot` direct dep
+- **v1.1.1** — `SystemStreamWriter` abstraction; `SubscriptionDegraded` emit refactored through it
+- **v1.1.2** — `read_range_bounded` + `read_by_correlation_bounded` with cursor resume
+- **v1.1.3** — `walk_causation_bounded` with three sampling modes (Rust-side BFS replaces recursive CTE)
+- **v1.1.4** — `aggregate_bounded` with Clone-snapshot finalize
+- **v1.1.5** — Streaming iterators (`read_range_iter`, `read_by_correlation_iter`, `walk_causation_iter`) with pool-release invariant
+- **v1.1.6** — Python binding surface (`fossic-py`)
+- **v1.1.7** — Node.js binding surface (`fossic-node`)
+- **v1.1.8** — Tauri IPC bounded commands (`fossic-tauri`)
+- **v1.1.9** — Documentation pass
+
+Track 2 shipped Phases 6, 7, and 8 in parallel (v1.2.0–v1.5.0). Version v1.6.0 post-dates both tracks.
+
+Next: Phase 2 — Hardware-Aware Defaults; Phase 3 — Pressure-Aware Substrate.
+
+---
+
+## v1.1.9 — 2026-06-21 — Documentation pass
+
+**Pass report:** `docs/aseptic/blast-radius/pass-1.1.9.md`
+
+### Changed
+
+- `README.md` — new `## Bounded reads and streaming iterators` section (API selection table, `ReadOutcome` enum, `TruncationCursor` usage, streaming iterators, `SamplingMode` table, `aggregate_bounded` cursor note); new `## Observability` section (`dispatch_channel_pressure`, `dispatch_channel_high_water_mark`)
+- `fossic-py/README.md` — new `## Bounded reads and streaming iterators` section (Python syntax, `ReadOutcome` properties, `TruncationCursor`, `SamplingMode`, streaming iterators, bounded method signatures, CP-FOSSIC-3 workaround note)
+- `fossic-node/README.md` — new `## Bounded reads and streaming iterators` section (TypeScript syntax, `ReadOutcome` discriminated union, `TruncationCursor`, `SamplingMode`, streaming iterators, bounded method signatures, `defaultMaxResults`/`defaultMaxBytes` OpenOptions note)
+- `crates/fossic-tauri/README.md` — 7 new bounded commands added to IPC table; new `## Bounded read commands` section (`ReadOutcome` JSON shape, cursor resumption, `SamplingMode` JSON, `fossic_aggregate_bounded`, streaming limitation note)
+- `docs/implement/FOSSIC_V1_SPEC.md` — §4.1 updated: `OpenOptions` budget defaults, bounded methods + streaming iterators in `impl Store`, observability methods, canonical type defs (`ReadOutcome`, `TruncationReason`, `TruncationCursor`, `SamplingMode`, `ReadQuery`); §10.1–10.3 updated with bounded variant notes; §18 Phase Roadmap added (Phase 1 arc table, Phases 2–5 descriptions)
+
+---
+
 ## v1.1.8 — 2026-06-21 — Tauri IPC bounded read commands
 
 **fossic-tauri** gains bounded read commands with cursor resumption.
