@@ -98,7 +98,7 @@ The following is ready to post to #changelog:
 ── PASS COMPLETE · vX.Y.Z · YYYY-MM-DD ──────────────────────
 
 Title: [4–8 word blog-suitable title]
-Summary: [one sentence, 20–300 chars]
+Summary: [one sentence, 20–280 chars]
 Project: fossic
 
 Highlights:
