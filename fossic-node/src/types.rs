@@ -1,4 +1,4 @@
-use fossic::{BranchInfo, SnapshotInfo, StoredEvent, StreamInfo};
+use fossic::{BranchInfo, ReadOutcome, SnapshotInfo, StoredEvent, StreamInfo, TruncationReason};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
@@ -265,6 +265,10 @@ pub struct OpenOptionsJs {
     pub checkpoint_mode: Option<String>,
     /// `"create_if_missing"` (default) | `"fail_if_not_found"`.
     pub on_first_open: Option<String>,
+    /// Default result-count ceiling for bounded reads on this store.
+    pub default_max_results: Option<u32>,
+    /// Default byte-size ceiling for bounded reads on this store.
+    pub default_max_bytes: Option<u32>,
 }
 
 pub(crate) fn parse_open_options(js: Option<OpenOptionsJs>) -> Result<fossic::OpenOptions> {
@@ -293,8 +297,105 @@ pub(crate) fn parse_open_options(js: Option<OpenOptionsJs>) -> Result<fossic::Op
                 }
             };
         }
+        if let Some(n) = js.default_max_results {
+            opts.default_max_results = Some(n as usize);
+        }
+        if let Some(n) = js.default_max_bytes {
+            opts.default_max_bytes = Some(n as usize);
+        }
     }
     Ok(opts)
+}
+
+// ── TruncationCursorJs ────────────────────────────────────────────────────────
+
+/// Opaque resume token for bounded reads. Callers must treat it as opaque
+/// and only pass it back to the same bounded read method that produced it.
+#[napi]
+pub struct TruncationCursorJs {
+    pub(crate) inner: fossic::TruncationCursor,
+}
+
+#[napi]
+impl TruncationCursorJs {
+    /// Serialize the cursor to raw bytes (for persistence / transport).
+    #[napi]
+    pub fn to_bytes(&self) -> Buffer {
+        self.inner.as_bytes().to_vec().into()
+    }
+
+    /// Reconstruct a cursor from previously serialized bytes.
+    #[napi(factory)]
+    pub fn from_bytes(buf: Buffer) -> Self {
+        TruncationCursorJs {
+            inner: fossic::TruncationCursor::from_bytes(buf.to_vec()),
+        }
+    }
+}
+
+// ── SamplingModeJs ────────────────────────────────────────────────────────────
+
+/// Tagged representation of the walk-causation sampling strategy.
+/// Use the `SamplingMode` namespace in `index.js` to construct values.
+#[napi(object)]
+pub struct SamplingModeJs {
+    pub kind: String,
+    pub max_per_level: Option<u32>,
+    pub target_count: Option<u32>,
+}
+
+pub(crate) fn parse_sampling_mode(js: Option<SamplingModeJs>) -> fossic::SamplingMode {
+    match js {
+        None => fossic::SamplingMode::Exhaustive,
+        Some(s) => match s.kind.as_str() {
+            "breadthFirst" => fossic::SamplingMode::BreadthFirst {
+                max_per_level: s.max_per_level.unwrap_or(100) as usize,
+            },
+            "adaptive" => fossic::SamplingMode::Adaptive {
+                target_count: s.target_count.unwrap_or(100) as usize,
+            },
+            _ => fossic::SamplingMode::Exhaustive,
+        },
+    }
+}
+
+// ── ReadOutcomeJs ─────────────────────────────────────────────────────────────
+
+/// Result of a bounded read. Discriminated by `kind`: `"complete"` or `"truncated"`.
+///
+/// The `nextCursor` field is a raw `Buffer` (opaque bytes). The JS layer in
+/// `index.js` wraps it into a `TruncationCursor` instance before returning.
+#[napi(object)]
+pub struct ReadOutcomeJs {
+    /// `"complete"` or `"truncated"`
+    pub kind: String,
+    pub results: Vec<StoredEventJs>,
+    /// `"result_count"` | `"byte_size"` — only set when `kind == "truncated"`.
+    pub reason: Option<String>,
+    /// Raw cursor bytes — only set when `kind == "truncated"`. Wrapped by JS into TruncationCursor.
+    pub next_cursor: Option<Buffer>,
+}
+
+impl ReadOutcomeJs {
+    pub fn from_outcome(outcome: ReadOutcome<Vec<StoredEvent>>) -> Self {
+        match outcome {
+            ReadOutcome::Complete(events) => ReadOutcomeJs {
+                kind: "complete".into(),
+                results: events.iter().map(StoredEventJs::from).collect(),
+                reason: None,
+                next_cursor: None,
+            },
+            ReadOutcome::Truncated { data, cursor, reason } => ReadOutcomeJs {
+                kind: "truncated".into(),
+                results: data.iter().map(StoredEventJs::from).collect(),
+                reason: Some(match reason {
+                    TruncationReason::ResultCount => "result_count".into(),
+                    TruncationReason::ByteSize => "byte_size".into(),
+                }),
+                next_cursor: cursor.map(|c| c.as_bytes().to_vec().into()),
+            },
+        }
+    }
 }
 
 // ── SubscribeQueryJs ──────────────────────────────────────────────────────────

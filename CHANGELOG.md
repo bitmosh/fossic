@@ -257,6 +257,35 @@ writes from separate connections without contention.
 
 ---
 
+## v1.1.7 — 2026-06-21 — Node binding surface: bounded reads + streaming async iterables
+
+**fossic-node** gains the bounded read and streaming iterator surface introduced in v1.1.3–v1.1.5.
+
+### New types (fossic-node)
+- `ReadOutcome` — TypeScript discriminated union; `kind: 'complete' | 'truncated'`, `results`, `reason`, `nextCursor`
+- `TruncationCursor` — opaque class; `.toBytes()` → `Buffer`, static `.fromBytes(buf: Buffer)`
+- `SamplingMode` — namespace with constructor functions `.exhaustive()`, `.breadthFirst(maxPerLevel)`, `.adaptive(targetCount)`
+- `FossicRangeIter`, `FossicCorrelationIter`, `FossicCausationIter` — `AsyncIterable<StoredEvent>`; `for await` works directly
+
+### New methods on `Store` (fossic-node)
+- `readRangeBounded(query, maxResults?, maxBytes?, cursor?)` → `Promise<ReadOutcome>`
+- `readByCorrelationBounded(correlationId, maxResults?, maxBytes?, cursor?)` → `Promise<ReadOutcome>`
+- `walkCausationBounded(start, direction, maxDepth?, sampling?, maxResults?, maxBytes?, cursor?)` → `Promise<ReadOutcome>`
+- `readRangeIter(query)` → `FossicRangeIter`
+- `readByCorrelationIter(correlationId)` → `FossicCorrelationIter`
+- `walkCausationIter(start, direction, maxDepth?, sampling?)` → `FossicCausationIter`
+
+### OpenOptions additions (fossic-node)
+- `defaultMaxResults?: number` — store-level result budget applied when per-call budget is absent
+- `defaultMaxBytes?: number` — store-level byte budget; CP-FOSSIC-3 fix from the Python pass, not repeated here
+
+### Notes
+- Pool connections are released before each async yield — same invariant as v1.1.5
+- Wrong-type cursors (e.g. range cursor passed to a correlation query) raise `FossicError` at the Rust boundary
+- `Option<TruncationCursorJs>` cannot be embedded in `#[napi(object)]`; Buffer passthrough with JS-layer wrapping keeps the cursor type opaque
+
+---
+
 ## v1.1.6 — 2026-06-21 — Python binding surface: bounded reads + streaming iterators
 
 **fossic-py** gains the bounded read and streaming iterator surface introduced in v1.1.3–v1.1.5.

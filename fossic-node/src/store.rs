@@ -1,14 +1,27 @@
-use fossic::{ReadQuery, Store as FossicStore, SubscribeQuery, SubscriptionMode};
+use fossic::{ReadQuery, Store as FossicStore, SubscribeQuery, SubscriptionMode, WalkDirection};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use crate::{
+    iters::{FossicCausationIter, FossicCorrelationIter, FossicRangeIter},
     subscriptions::FossicSubscription,
     types::{
-        parse_open_options, AppendJs, BranchInfoJs, CreateBranchJs, EventId, OpenOptionsJs,
-        ReadQueryJs, StreamInfoJs, SubscribeQueryJs,
+        parse_open_options, parse_sampling_mode, AppendJs, BranchInfoJs, CreateBranchJs, EventId,
+        OpenOptionsJs, ReadOutcomeJs, ReadQueryJs, SamplingModeJs, StreamInfoJs, SubscribeQueryJs,
     },
 };
+
+fn parse_direction(direction: &str) -> Result<WalkDirection> {
+    match direction {
+        "forward" | "Forward" => Ok(WalkDirection::Forward),
+        "backward" | "Backward" => Ok(WalkDirection::Backward),
+        "both" | "Both" => Ok(WalkDirection::Both),
+        other => Err(Error::new(
+            Status::InvalidArg,
+            format!("unknown direction: {other}"),
+        )),
+    }
+}
 
 // ── SnapshotStateJs ───────────────────────────────────────────────────────────
 
@@ -194,19 +207,9 @@ impl Store {
         direction: String,
         max_depth: Option<u32>,
     ) -> Result<Vec<crate::types::StoredEventJs>> {
-        use fossic::WalkDirection;
         let store = self.inner.clone();
         let start_id = start.inner;
-        let dir = match direction.as_str() {
-            "forward" | "Forward" => WalkDirection::Forward,
-            "backward" | "Backward" => WalkDirection::Backward,
-            other => {
-                return Err(Error::new(
-                    Status::InvalidArg,
-                    format!("unknown direction: {other}"),
-                ))
-            }
-        };
+        let dir = parse_direction(&direction)?;
         let depth = max_depth.map(|d| d as usize).unwrap_or(i64::MAX as usize);
         tokio::task::spawn_blocking(move || {
             store
@@ -216,6 +219,116 @@ impl Store {
         })
         .await
         .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
+    }
+
+    // ── Bounded reads ─────────────────────────────────────────────────────────
+
+    /// Bounded range read. `cursor` is raw bytes from a previous truncated outcome's
+    /// `nextCursor` field. The JS layer in `index.js` converts `TruncationCursor` ↔ Buffer.
+    #[napi]
+    pub async fn read_range_bounded(
+        &self,
+        query: ReadQueryJs,
+        max_results: Option<u32>,
+        max_bytes: Option<u32>,
+        cursor: Option<Buffer>,
+    ) -> Result<ReadOutcomeJs> {
+        let store = self.inner.clone();
+        let q = ReadQuery::from(query);
+        let mr = max_results.map(|n| n as usize);
+        let mb = max_bytes.map(|n| n as usize);
+        let rust_cursor = cursor.map(|buf| fossic::TruncationCursor::from_bytes(buf.to_vec()));
+        tokio::task::spawn_blocking(move || {
+            store
+                .read_range_bounded(q, mr, mb, rust_cursor)
+                .map(ReadOutcomeJs::from_outcome)
+                .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+        })
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
+    }
+
+    #[napi]
+    pub async fn read_by_correlation_bounded(
+        &self,
+        correlation_id: &EventId,
+        max_results: Option<u32>,
+        max_bytes: Option<u32>,
+        cursor: Option<Buffer>,
+    ) -> Result<ReadOutcomeJs> {
+        let store = self.inner.clone();
+        let id = correlation_id.inner;
+        let mr = max_results.map(|n| n as usize);
+        let mb = max_bytes.map(|n| n as usize);
+        let rust_cursor = cursor.map(|buf| fossic::TruncationCursor::from_bytes(buf.to_vec()));
+        tokio::task::spawn_blocking(move || {
+            store
+                .read_by_correlation_bounded(id, mr, mb, rust_cursor)
+                .map(ReadOutcomeJs::from_outcome)
+                .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+        })
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
+    }
+
+    #[napi]
+    pub async fn walk_causation_bounded(
+        &self,
+        start: &EventId,
+        direction: String,
+        max_depth: Option<u32>,
+        sampling: Option<SamplingModeJs>,
+        max_results: Option<u32>,
+        max_bytes: Option<u32>,
+        cursor: Option<Buffer>,
+    ) -> Result<ReadOutcomeJs> {
+        let store = self.inner.clone();
+        let start_id = start.inner;
+        let dir = parse_direction(&direction)?;
+        let depth = max_depth.map(|d| d as usize).unwrap_or(i64::MAX as usize);
+        let samp = parse_sampling_mode(sampling);
+        let mr = max_results.map(|n| n as usize);
+        let mb = max_bytes.map(|n| n as usize);
+        let rust_cursor = cursor.map(|buf| fossic::TruncationCursor::from_bytes(buf.to_vec()));
+        tokio::task::spawn_blocking(move || {
+            store
+                .walk_causation_bounded(start_id, dir, depth, samp, mr, mb, rust_cursor)
+                .map(ReadOutcomeJs::from_outcome)
+                .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))
+        })
+        .await
+        .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
+    }
+
+    // ── Streaming iterators ───────────────────────────────────────────────────
+
+    /// Returns a lazy iterator over a range query. Pool connection released between batches.
+    /// The JS layer in `index.js` wraps this with `[Symbol.asyncIterator]`.
+    #[napi]
+    pub fn read_range_iter(&self, query: ReadQueryJs) -> FossicRangeIter {
+        let q = ReadQuery::from(query);
+        FossicRangeIter::new(self.inner.read_range_iter(q))
+    }
+
+    #[napi]
+    pub fn read_by_correlation_iter(&self, correlation_id: &EventId) -> FossicCorrelationIter {
+        FossicCorrelationIter::new(self.inner.read_by_correlation_iter(correlation_id.inner))
+    }
+
+    #[napi]
+    pub fn walk_causation_iter(
+        &self,
+        start: &EventId,
+        direction: String,
+        max_depth: Option<u32>,
+        sampling: Option<SamplingModeJs>,
+    ) -> Result<FossicCausationIter> {
+        let dir = parse_direction(&direction)?;
+        let depth = max_depth.map(|d| d as usize).unwrap_or(i64::MAX as usize);
+        let samp = parse_sampling_mode(sampling);
+        Ok(FossicCausationIter::new(
+            self.inner.walk_causation_iter(start.inner, dir, depth, samp),
+        ))
     }
 
     // ── Branches ──────────────────────────────────────────────────────────────
