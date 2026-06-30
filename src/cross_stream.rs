@@ -1,7 +1,9 @@
 use crate::{
     error::Error,
     read::{row_to_event, PREFIXED_SELECT_COLS, SELECT_COLS},
-    types::{CursorInner, ReadOutcome, SamplingMode, StoredEvent, TruncationCursor, TruncationReason},
+    types::{
+        CursorInner, ReadOutcome, SamplingMode, StoredEvent, TruncationCursor, TruncationReason,
+    },
     upcasters::{apply_upcaster, UpcasterRegistry},
     EventId,
 };
@@ -121,9 +123,9 @@ pub(crate) fn read_by_correlation_bounded_impl(
         let event = row?;
         let event_bytes = event.payload.len();
 
-        let exceed_count = max_results.map_or(false, |n| events.len() >= n);
+        let exceed_count = max_results.is_some_and(|n| events.len() >= n);
         let exceed_bytes =
-            max_bytes.map_or(false, |b| !events.is_empty() && byte_count + event_bytes > b);
+            max_bytes.is_some_and(|b| !events.is_empty() && byte_count + event_bytes > b);
 
         if exceed_count || exceed_bytes {
             let last_seen_id = events.last().map(|e| *e.id.as_bytes()).unwrap_or([0u8; 32]);
@@ -136,7 +138,11 @@ pub(crate) fn read_by_correlation_bounded_impl(
             } else {
                 TruncationReason::ByteSize
             };
-            return Ok(ReadOutcome::Truncated { data: events, cursor: Some(cursor), reason });
+            return Ok(ReadOutcome::Truncated {
+                data: events,
+                cursor: Some(cursor),
+                reason,
+            });
         }
 
         byte_count += event_bytes;
@@ -201,10 +207,7 @@ fn walk_forward(
     );
     let mut stmt = conn.prepare(&sql)?;
     let depth_bound: i64 = i64::try_from(max_depth).unwrap_or(i64::MAX);
-    let rows = stmt.query_map(
-        rusqlite::params![start, depth_bound],
-        row_to_event,
-    )?;
+    let rows = stmt.query_map(rusqlite::params![start, depth_bound], row_to_event)?;
     let mut events = Vec::new();
     for row in rows {
         events.push(row?);
@@ -242,10 +245,7 @@ fn walk_backward(
     );
     let mut stmt = conn.prepare(&sql)?;
     let depth_bound: i64 = i64::try_from(max_depth).unwrap_or(i64::MAX);
-    let rows = stmt.query_map(
-        rusqlite::params![start, depth_bound],
-        row_to_event,
-    )?;
+    let rows = stmt.query_map(rusqlite::params![start, depth_bound], row_to_event)?;
     let mut events = Vec::new();
     for row in rows {
         events.push(row?);
@@ -257,10 +257,7 @@ fn walk_backward(
 
 /// Fetch all events whose `causation_id` is one of the `frontier` IDs — one BFS
 /// level forward (children). Results ordered by `id ASC` for determinism.
-fn bfs_expand_forward(
-    conn: &Connection,
-    frontier: &[[u8; 32]],
-) -> Result<Vec<StoredEvent>, Error> {
+fn bfs_expand_forward(conn: &Connection, frontier: &[[u8; 32]]) -> Result<Vec<StoredEvent>, Error> {
     if frontier.is_empty() {
         return Ok(Vec::new());
     }
@@ -363,6 +360,7 @@ fn apply_bfs_sampling(
 ///
 /// `resume` = `(frontier_ids, depth_consumed)` decoded from a `CursorInner::Causation`.
 /// `frontier_ids` are the last-yielded level's event IDs; expand them to get the next level.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn walk_causation_bounded_impl(
     conn: &Connection,
     start: EventId,
@@ -415,8 +413,8 @@ pub(crate) fn walk_causation_bounded_impl(
         let level_count = level_events.len();
         let level_bytes: usize = level_events.iter().map(|e| e.payload.len()).sum();
 
-        let would_exceed_count = max_results.map_or(false, |n| results.len() + level_count > n);
-        let would_exceed_bytes = max_bytes.map_or(false, |b| byte_count + level_bytes > b);
+        let would_exceed_count = max_results.is_some_and(|n| results.len() + level_count > n);
+        let would_exceed_bytes = max_bytes.is_some_and(|b| byte_count + level_bytes > b);
 
         // Cut before this level only if we already have results (at-least-one guarantee).
         if (would_exceed_count || would_exceed_bytes) && !results.is_empty() {
@@ -430,7 +428,11 @@ pub(crate) fn walk_causation_bounded_impl(
                 direction: dir_byte,
                 depth_consumed: (depth - 1) as u32,
             })?;
-            return Ok(ReadOutcome::Truncated { data: results, cursor: Some(cursor), reason });
+            return Ok(ReadOutcome::Truncated {
+                data: results,
+                cursor: Some(cursor),
+                reason,
+            });
         }
 
         // Yield this level.
@@ -462,10 +464,7 @@ pub(crate) fn aggregate_impl<A: Aggregate>(
 ) -> Result<A::Output, Error> {
     // Build WHERE clauses and bound params dynamically so we can attach
     // arbitrary indexed_tags conditions without the ?N reuse limitation.
-    let mut clauses: Vec<String> = vec![
-        "stream_id GLOB ?".to_string(),
-        "branch = ?".to_string(),
-    ];
+    let mut clauses: Vec<String> = vec!["stream_id GLOB ?".to_string(), "branch = ?".to_string()];
     // Using Box<dyn ToSql> so we can push heterogeneous param types.
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
         Box::new(query.stream_pattern.clone()),
@@ -488,41 +487,39 @@ pub(crate) fn aggregate_impl<A: Aggregate>(
     // indexed_tags_filter: flat AND, exact-match on JSON primitives.
     // Booleans are compared as integers (json_extract returns 1/0 for true/false).
     // Keys are validated to prevent SQL injection via the JSON path literal.
-    if let Some(ref filter) = query.indexed_tags_filter {
-        if let serde_json::Value::Object(map) = filter {
-            for (key, value) in map {
-                if !is_safe_tag_key(key) {
-                    return Err(Error::Internal(format!(
-                        "indexed_tags_filter key {key:?} must contain only letters, digits, and underscores"
-                    )));
+    if let Some(serde_json::Value::Object(map)) = &query.indexed_tags_filter {
+        for (key, value) in map {
+            if !is_safe_tag_key(key) {
+                return Err(Error::Internal(format!(
+                    "indexed_tags_filter key {key:?} must contain only letters, digits, and underscores"
+                )));
+            }
+            let path = format!("$.{key}");
+            match value {
+                serde_json::Value::Null => {
+                    clauses.push(format!("json_extract(indexed_tags, '{path}') IS NULL"));
                 }
-                let path = format!("$.{key}");
-                match value {
-                    serde_json::Value::Null => {
-                        clauses.push(format!("json_extract(indexed_tags, '{path}') IS NULL"));
-                    }
-                    serde_json::Value::Bool(b) => {
+                serde_json::Value::Bool(b) => {
+                    clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
+                    params.push(Box::new(if *b { 1i64 } else { 0i64 }));
+                }
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
                         clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
-                        params.push(Box::new(if *b { 1i64 } else { 0i64 }));
-                    }
-                    serde_json::Value::Number(n) => {
-                        if let Some(i) = n.as_i64() {
-                            clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
-                            params.push(Box::new(i));
-                        } else if let Some(f) = n.as_f64() {
-                            clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
-                            params.push(Box::new(f));
-                        }
-                    }
-                    serde_json::Value::String(s) => {
+                        params.push(Box::new(i));
+                    } else if let Some(f) = n.as_f64() {
                         clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
-                        params.push(Box::new(s.clone()));
+                        params.push(Box::new(f));
                     }
-                    _ => {
-                        return Err(Error::Internal(format!(
-                            "indexed_tags_filter value for key {key:?} must be a JSON primitive (string, bool, number, or null)"
-                        )));
-                    }
+                }
+                serde_json::Value::String(s) => {
+                    clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
+                    params.push(Box::new(s.clone()));
+                }
+                _ => {
+                    return Err(Error::Internal(format!(
+                        "indexed_tags_filter value for key {key:?} must be a JSON primitive (string, bool, number, or null)"
+                    )));
                 }
             }
         }
@@ -567,10 +564,7 @@ pub(crate) fn aggregate_bounded_impl<A: Aggregate + Clone>(
     max_events: Option<usize>,
     max_bytes: Option<usize>,
 ) -> Result<ReadOutcome<A::Output>, Error> {
-    let mut clauses: Vec<String> = vec![
-        "stream_id GLOB ?".to_string(),
-        "branch = ?".to_string(),
-    ];
+    let mut clauses: Vec<String> = vec!["stream_id GLOB ?".to_string(), "branch = ?".to_string()];
     let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
         Box::new(query.stream_pattern.clone()),
         Box::new(query.branch.clone()),
@@ -588,41 +582,39 @@ pub(crate) fn aggregate_bounded_impl<A: Aggregate + Clone>(
         clauses.push("timestamp_us <= ?".to_string());
         params.push(Box::new(to_ts));
     }
-    if let Some(ref filter) = query.indexed_tags_filter {
-        if let serde_json::Value::Object(map) = filter {
-            for (key, value) in map {
-                if !is_safe_tag_key(key) {
-                    return Err(Error::Internal(format!(
-                        "indexed_tags_filter key {key:?} must contain only letters, digits, and underscores"
-                    )));
+    if let Some(serde_json::Value::Object(map)) = &query.indexed_tags_filter {
+        for (key, value) in map {
+            if !is_safe_tag_key(key) {
+                return Err(Error::Internal(format!(
+                    "indexed_tags_filter key {key:?} must contain only letters, digits, and underscores"
+                )));
+            }
+            let path = format!("$.{key}");
+            match value {
+                serde_json::Value::Null => {
+                    clauses.push(format!("json_extract(indexed_tags, '{path}') IS NULL"));
                 }
-                let path = format!("$.{key}");
-                match value {
-                    serde_json::Value::Null => {
-                        clauses.push(format!("json_extract(indexed_tags, '{path}') IS NULL"));
-                    }
-                    serde_json::Value::Bool(b) => {
+                serde_json::Value::Bool(b) => {
+                    clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
+                    params.push(Box::new(if *b { 1i64 } else { 0i64 }));
+                }
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
                         clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
-                        params.push(Box::new(if *b { 1i64 } else { 0i64 }));
-                    }
-                    serde_json::Value::Number(n) => {
-                        if let Some(i) = n.as_i64() {
-                            clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
-                            params.push(Box::new(i));
-                        } else if let Some(f) = n.as_f64() {
-                            clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
-                            params.push(Box::new(f));
-                        }
-                    }
-                    serde_json::Value::String(s) => {
+                        params.push(Box::new(i));
+                    } else if let Some(f) = n.as_f64() {
                         clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
-                        params.push(Box::new(s.clone()));
+                        params.push(Box::new(f));
                     }
-                    _ => {
-                        return Err(Error::Internal(format!(
-                            "indexed_tags_filter value for key {key:?} must be a JSON primitive (string, bool, number, or null)"
-                        )));
-                    }
+                }
+                serde_json::Value::String(s) => {
+                    clauses.push(format!("json_extract(indexed_tags, '{path}') = ?"));
+                    params.push(Box::new(s.clone()));
+                }
+                _ => {
+                    return Err(Error::Internal(format!(
+                        "indexed_tags_filter value for key {key:?} must be a JSON primitive (string, bool, number, or null)"
+                    )));
                 }
             }
         }
@@ -646,10 +638,10 @@ pub(crate) fn aggregate_bounded_impl<A: Aggregate + Clone>(
         if crate::glob::matches(&query.stream_pattern, &event.stream_id) {
             let event_bytes = event.payload.len();
 
-            let exceed_count = max_events.map_or(false, |n| events_scanned >= n);
+            let exceed_count = max_events.is_some_and(|n| events_scanned >= n);
             // at-least-one: byte budget only fires after at least one event has been folded
             let exceed_bytes =
-                max_bytes.map_or(false, |b| events_scanned > 0 && byte_count + event_bytes > b);
+                max_bytes.is_some_and(|b| events_scanned > 0 && byte_count + event_bytes > b);
 
             if exceed_count || exceed_bytes {
                 let reason = if exceed_count {
@@ -658,7 +650,11 @@ pub(crate) fn aggregate_bounded_impl<A: Aggregate + Clone>(
                     TruncationReason::ByteSize
                 };
                 let data = agg.clone().finalize();
-                return Ok(ReadOutcome::Truncated { data, cursor: None, reason });
+                return Ok(ReadOutcome::Truncated {
+                    data,
+                    cursor: None,
+                    reason,
+                });
             }
 
             agg.fold(&event);

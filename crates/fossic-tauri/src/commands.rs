@@ -1,4 +1,7 @@
-use fossic::{AggregateQuery, EventId, ReadQuery, Store, SubscribeQuery, SubscriptionHandler, SubscriptionMode};
+use fossic::{
+    AggregateQuery, EventId, ReadQuery, Store, SubscribeQuery, SubscriptionHandler,
+    SubscriptionMode,
+};
 use tauri::{AppHandle, Emitter, Runtime, State};
 
 use crate::{
@@ -41,15 +44,24 @@ impl From<fossic::Error> for FossicTauriError {
 }
 
 fn direction_err(msg: String) -> FossicTauriError {
-    FossicTauriError { code: "StorageError", message: msg }
+    FossicTauriError {
+        code: "StorageError",
+        message: msg,
+    }
 }
 
 fn sampling_err(msg: String) -> FossicTauriError {
-    FossicTauriError { code: "StorageError", message: msg }
+    FossicTauriError {
+        code: "StorageError",
+        message: msg,
+    }
 }
 
 fn cursor_err(msg: String) -> FossicTauriError {
-    FossicTauriError { code: "StorageError", message: msg }
+    FossicTauriError {
+        code: "StorageError",
+        message: msg,
+    }
 }
 
 // ── Stream commands ───────────────────────────────────────────────────────────
@@ -196,11 +208,20 @@ pub fn fossic_read_range_bounded(
     max_bytes: Option<usize>,
 ) -> Result<SerializedReadOutcome, FossicTauriError> {
     let mut q = ReadQuery::stream(stream_id);
-    if let Some(b) = branch { q.branch = b; }
-    if let Some(v) = from_version { q.from_version = Some(v); }
-    if let Some(v) = to_version { q.to_version = Some(v); }
-    if let Some(f) = event_type_filter { q.event_type_filter = Some(f); }
-    store.read_range_bounded(q, max_results, max_bytes, None)
+    if let Some(b) = branch {
+        q.branch = b;
+    }
+    if let Some(v) = from_version {
+        q.from_version = Some(v);
+    }
+    if let Some(v) = to_version {
+        q.to_version = Some(v);
+    }
+    if let Some(f) = event_type_filter {
+        q.event_type_filter = Some(f);
+    }
+    store
+        .read_range_bounded(q, max_results, max_bytes, None)
         .map(SerializedReadOutcome::from_outcome)
         .map_err(FossicTauriError::from)
 }
@@ -218,12 +239,21 @@ pub fn fossic_read_range_from_cursor(
     cursor: String,
 ) -> Result<SerializedReadOutcome, FossicTauriError> {
     let mut q = ReadQuery::stream(stream_id);
-    if let Some(b) = branch { q.branch = b; }
-    if let Some(v) = from_version { q.from_version = Some(v); }
-    if let Some(v) = to_version { q.to_version = Some(v); }
-    if let Some(f) = event_type_filter { q.event_type_filter = Some(f); }
+    if let Some(b) = branch {
+        q.branch = b;
+    }
+    if let Some(v) = from_version {
+        q.from_version = Some(v);
+    }
+    if let Some(v) = to_version {
+        q.to_version = Some(v);
+    }
+    if let Some(f) = event_type_filter {
+        q.event_type_filter = Some(f);
+    }
     let c = parse_cursor(&cursor).map_err(cursor_err)?;
-    store.read_range_bounded(q, max_results, max_bytes, Some(c))
+    store
+        .read_range_bounded(q, max_results, max_bytes, Some(c))
         .map(SerializedReadOutcome::from_outcome)
         .map_err(FossicTauriError::from)
 }
@@ -236,7 +266,8 @@ pub fn fossic_read_by_correlation_bounded(
     max_bytes: Option<usize>,
 ) -> Result<SerializedReadOutcome, FossicTauriError> {
     let id = EventId::from_hex(&correlation_id).map_err(FossicTauriError::from)?;
-    store.read_by_correlation_bounded(id, max_results, max_bytes, None)
+    store
+        .read_by_correlation_bounded(id, max_results, max_bytes, None)
         .map(SerializedReadOutcome::from_outcome)
         .map_err(FossicTauriError::from)
 }
@@ -251,7 +282,8 @@ pub fn fossic_read_by_correlation_from_cursor(
 ) -> Result<SerializedReadOutcome, FossicTauriError> {
     let id = EventId::from_hex(&correlation_id).map_err(FossicTauriError::from)?;
     let c = parse_cursor(&cursor).map_err(cursor_err)?;
-    store.read_by_correlation_bounded(id, max_results, max_bytes, Some(c))
+    store
+        .read_by_correlation_bounded(id, max_results, max_bytes, Some(c))
         .map(SerializedReadOutcome::from_outcome)
         .map_err(FossicTauriError::from)
 }
@@ -270,7 +302,8 @@ pub fn fossic_walk_causation_bounded(
     let dir = parse_direction(&direction).map_err(direction_err)?;
     let depth = max_depth.unwrap_or(i64::MAX as usize);
     let samp = parse_sampling_mode(sampling).map_err(sampling_err)?;
-    store.walk_causation_bounded(start_id, dir, depth, samp, max_results, max_bytes, None)
+    store
+        .walk_causation_bounded(start_id, dir, depth, samp, max_results, max_bytes, None)
         .map(SerializedReadOutcome::from_outcome)
         .map_err(FossicTauriError::from)
 }
@@ -291,7 +324,8 @@ pub fn fossic_walk_causation_from_cursor(
     let depth = max_depth.unwrap_or(i64::MAX as usize);
     let samp = parse_sampling_mode(sampling).map_err(sampling_err)?;
     let c = parse_cursor(&cursor).map_err(cursor_err)?;
-    store.walk_causation_bounded(start_id, dir, depth, samp, max_results, max_bytes, Some(c))
+    store
+        .walk_causation_bounded(start_id, dir, depth, samp, max_results, max_bytes, Some(c))
         .map(SerializedReadOutcome::from_outcome)
         .map_err(FossicTauriError::from)
 }
@@ -307,7 +341,9 @@ struct CollectAggregate {
 
 impl Clone for CollectAggregate {
     fn clone(&self) -> Self {
-        CollectAggregate { events: self.events.clone() }
+        CollectAggregate {
+            events: self.events.clone(),
+        }
     }
 }
 
@@ -352,7 +388,8 @@ pub fn fossic_aggregate_bounded(
         indexed_tags_filter,
     };
     let agg = CollectAggregate { events: Vec::new() };
-    store.aggregate_bounded(q, agg, max_events_scanned, max_bytes)
+    store
+        .aggregate_bounded(q, agg, max_events_scanned, max_bytes)
         .map(|outcome| match outcome {
             fossic::ReadOutcome::Complete(events) => SerializedAggregateOutcome {
                 kind: "complete",
@@ -390,10 +427,7 @@ pub fn fossic_read_state_at_version(
     if let Some(name) = reducer_name {
         store
             .read_state_at_version_with_reducer::<serde_json::Value>(
-                &stream_id,
-                &branch,
-                version,
-                &name,
+                &stream_id, &branch, version, &name,
             )
             .map_err(FossicTauriError::from)
     } else {
@@ -446,15 +480,15 @@ pub fn fossic_subscribe<R: Runtime>(
     };
     let stream_pattern = q.stream_pattern.clone();
     let branch = q.branch.clone();
-    let handle = store.subscribe(q, mode, handler).map_err(FossicTauriError::from)?;
+    let handle = store
+        .subscribe(q, mode, handler)
+        .map_err(FossicTauriError::from)?;
     subs.insert(sub_id.clone(), handle, stream_pattern, branch);
     Ok(sub_id)
 }
 
 #[tauri::command]
-pub fn fossic_list_subscribers(
-    subs: State<'_, SubscriptionMap>,
-) -> Vec<crate::SubscriberSnapshot> {
+pub fn fossic_list_subscribers(subs: State<'_, SubscriptionMap>) -> Vec<crate::SubscriberSnapshot> {
     subs.snapshot_all()
 }
 

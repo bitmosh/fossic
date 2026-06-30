@@ -192,7 +192,8 @@ pub(crate) fn list_branches_impl(
                 .and_then(|s| serde_json::from_str(s).ok()),
         })
     })?;
-    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Error::from)
+    rows.collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(Error::from)
 }
 
 // ── Chain resolution ──────────────────────────────────────────────────────────

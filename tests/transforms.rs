@@ -2,8 +2,8 @@ use fossic::{Append, Error, OpenOptions, PayloadTransform, Store};
 
 fn open_tmp() -> (Store, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join("test.db"), OpenOptions::default())
-        .expect("open store");
+    let store =
+        Store::open(dir.path().join("test.db"), OpenOptions::default()).expect("open store");
     (store, dir)
 }
 
@@ -59,7 +59,9 @@ impl PayloadTransform for AppendStep2 {
 #[test]
 fn transform_changes_event_id() {
     let (store, _dir) = open_tmp();
-    store.declare_stream("policy-scout/audit", "test", None).unwrap();
+    store
+        .declare_stream("policy-scout/audit", "test", None)
+        .unwrap();
 
     // Append WITHOUT transform.
     let payload = serde_json::json!({"data": "hello", "secret": "top_secret"});
@@ -76,7 +78,9 @@ fn transform_changes_event_id() {
     // Register transform and append same logical payload to a second store.
     let dir2 = tempfile::tempdir().unwrap();
     let store2 = Store::open(dir2.path().join("t.db"), OpenOptions::default()).unwrap();
-    store2.declare_stream("policy-scout/audit", "test", None).unwrap();
+    store2
+        .declare_stream("policy-scout/audit", "test", None)
+        .unwrap();
     store2
         .register_payload_transform("policy-scout/audit", RedactSecret)
         .unwrap();
@@ -98,7 +102,9 @@ fn transform_changes_event_id() {
 #[test]
 fn transformed_payload_stored_without_secret() {
     let (store, _dir) = open_tmp();
-    store.declare_stream("policy-scout/audit", "test", None).unwrap();
+    store
+        .declare_stream("policy-scout/audit", "test", None)
+        .unwrap();
     store
         .register_payload_transform("policy-scout/audit", RedactSecret)
         .unwrap();
@@ -166,14 +172,21 @@ fn transform_does_not_fire_for_non_matching_stream() {
 
     let event = store.read_one(id).unwrap().unwrap();
     let stored: serde_json::Value = event.deserialize_payload_json().unwrap();
-    assert_eq!(stored["secret"], "still_here", "non-matching stream must not be transformed");
+    assert_eq!(
+        stored["secret"], "still_here",
+        "non-matching stream must not be transformed"
+    );
 }
 
 #[test]
 fn wildcard_pattern_matches_all_segments() {
     let (store, _dir) = open_tmp();
-    store.declare_stream("cerebra/lattice/abc", "test", None).unwrap();
-    store.declare_stream("cerebra/lattice/def", "test", None).unwrap();
+    store
+        .declare_stream("cerebra/lattice/abc", "test", None)
+        .unwrap();
+    store
+        .declare_stream("cerebra/lattice/def", "test", None)
+        .unwrap();
     store
         .register_payload_transform("cerebra/lattice/*", RedactSecret)
         .unwrap();
@@ -191,6 +204,9 @@ fn wildcard_pattern_matches_all_segments() {
 
         let event = store.read_one(id).unwrap().unwrap();
         let stored: serde_json::Value = event.deserialize_payload_json().unwrap();
-        assert!(stored.get("secret").is_none(), "secret must be redacted from {stream}");
+        assert!(
+            stored.get("secret").is_none(),
+            "secret must be redacted from {stream}"
+        );
     }
 }

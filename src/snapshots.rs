@@ -37,12 +37,7 @@ pub(crate) fn find_latest_snapshot(
              WHERE stream_id = ?1 AND branch = ?2 \
              AND reducer_name = ?3 AND state_schema_version = ?4 \
              ORDER BY version DESC LIMIT 1",
-            rusqlite::params![
-                stream_id,
-                branch,
-                reducer_name,
-                state_schema_version as i64,
-            ],
+            rusqlite::params![stream_id, branch, reducer_name, state_schema_version as i64,],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()?
@@ -142,11 +137,12 @@ pub(crate) fn gc_orphaned_snapshots_impl(
     }
 
     // Find all distinct (reducer_name, state_schema_version) pairs in the snapshots table.
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT reducer_name, state_schema_version FROM snapshots",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT DISTINCT reducer_name, state_schema_version FROM snapshots")?;
     let existing: Vec<(String, u32)> = stmt
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u32)))?
+        .query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u32))
+        })?
         .filter_map(|r| r.ok())
         .collect();
 

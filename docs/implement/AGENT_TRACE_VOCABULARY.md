@@ -1,7 +1,7 @@
 # Agent Trace Vocabulary
 
 **Status:** v1 specification · v1.0.0s · 2026-06-16
-**Scope:** Standard event types fossic ships for agent trace recording, the per-tool determinism registry, the rhyzome, bons.ai, and Cerebra extensions, and the OpenTelemetry GenAI span mapping.
+**Scope:** Standard event types fossic ships for agent trace recording, the per-tool determinism registry, the Cerebra and ai-stack extensions, and the OpenTelemetry GenAI span mapping.
 
 ---
 
@@ -9,7 +9,7 @@
 
 Agent trace event types grow over time. Every new agent-runtime integration potentially adds new event types. Keeping them in the main fossic spec would bloat it; keeping them only in code makes the protocol invisible. This document is the canonical vocabulary list, and it is intended to grow.
 
-The standard event types live in the `fossic` crate. The rhyzome, bons.ai, and Cerebra extensions live in their respective consumer codebases — they are documented here for cross-project coordination but fossic core does not depend on them.
+The standard event types live in the `fossic` crate. The Cerebra and ai-stack extensions live in their respective consumer codebases — they are documented here for cross-project coordination but fossic core does not depend on them.
 
 ---
 
@@ -20,9 +20,7 @@ A discoverability registry for all projects emitting events to fossic agent-trac
 | Consumer | Stream prefix | Vocabulary location | Overlap flags |
 |---|---|---|---|
 | fossic (standard) | `*/agent-trace/*` | This doc §3 | — |
-| Cerebra | `cerebra/agent-trace/*`, `cerebra/lattice/*`, `cerebra/control` | This doc §7 + `cerebra_phase6_event_vocabulary.md` | `ContextPacketBuilt`: also emitted in pre-Phase-6 retrieval flow without `cycle_id`; see §7.3.2 note |
-| rhyzome | `rhyzome/repair/*` | This doc §5 | — |
-| bons.ai | `bonsai/idea/*` | This doc §6 | — |
+| Cerebra | `cerebra/agent-trace/*`, `cerebra/lattice/*`, `cerebra/control` | This doc §5 + `cerebra_phase6_event_vocabulary.md` | `ContextPacketBuilt`: also emitted in pre-Phase-6 retrieval flow without `cycle_id`; see §5.3.2 note |
 
 When consumers ship new vocabularies, they:
 
@@ -184,171 +182,17 @@ On replay through a reducer or via the time-travel viewer:
 - **deterministic=true:** the stored `tool_result` is served as the result of the tool call. The tool is not re-executed. The agent sees the same result it saw originally.
 - **deterministic=false:** the tool is re-executed against the current environment. The new result may differ from the stored one. Consumers can opt into a "comparison mode" where both the stored and re-executed results are surfaced and divergence is logged.
 
-Rhyzome uses comparison mode for `run_pytest`: a stored PASS that replays as FAIL is a first-class finding (external regression introduced between original session and replay).
+Consumers using comparison mode treat a stored PASS that replays as FAIL as a first-class finding (external regression introduced between original session and replay).
 
 ---
 
-## 5. Rhyzome extension event types
-
-These types are defined in rhyzome's codebase, not in fossic core. They are documented here so other consumers (LumaWeave's time-travel viewer, the OTel exporter) can recognize them.
-
-### 5.1 `strategy_selected`
-
-```json
-{
-  "session_id": "string",
-  "file_id": "string",
-  "bug_type": "string",               // FailureCategory enum value
-  "ranked_strategies": [
-    {"strategy": "string", "score": float, "rationale": "string", "rank": int}
-  ],
-  "selected_strategy": "string",
-  "selection_reason": "string"
-}
-```
-
-Required at branch creation time — the `ranked_strategies` list is the `alternatives` payload for the branch.
-
-### 5.2 `ast_gate_evaluated`
-
-```json
-{
-  "session_id": "string",
-  "candidate_hash": "string",         // SHA-256 of the candidate diff
-  "gate_status": "string",            // GateStatus enum: "passed" | "rejected" | ...
-  "violations": ["string"],
-  "elapsed_ms": int
-}
-```
-
-A REJECTED gate means the diff is discarded without test execution. Replaying without this event loses the gate's veto.
-
-### 5.3 `strategy_exhausted`
-
-```json
-{
-  "session_id": "string",
-  "file_id": "string",
-  "bug_type": "string",
-  "strategies_tried": ["string"],
-  "final_failure_category": "string", // FailureCategory enum
-  "escalation_to_human": bool
-}
-```
-
-Emitted when all ranked strategies for a `(session, file, bug_type)` triple have been exhausted.
-
----
-
-## 6. Bons.ai extension event types
-
-These types are defined in bons.ai's codebase, not in fossic core. Same convention as rhyzome.
-
-### 6.1 `bandit_arm_selected`
-
-```json
-{
-  "parent_idea_id": "string",
-  "generation": int,
-  "arm_id": "string",                 // composite: strategy + mutation
-  "strategy": "string",               // "exploration" | "refinement" | "disruption" | "balanced"
-  "mutation": "string",
-  "ucb_value": float,
-  "exploration_rate": float,
-  "selection_mode": "string"          // "exploit" | "explore"
-}
-```
-
-### 6.2 `bandit_arm_updated`
-
-```json
-{
-  "arm_id": "string",
-  "reward": float,
-  "visit_count": int,
-  "reward_mean": float,
-  "posterior": {...}                  // bandit-specific posterior state
-}
-```
-
-### 6.3 `bandit_decision`
-
-```json
-{
-  "parent_idea_id": "string",
-  "generation": int,
-  "candidate_arms": [
-    {"arm_id": "string", "strategy": "string", "mutation": "string",
-     "visit_count": int, "reward_mean": float, "ucb_value": float}
-  ],
-  "selected_arm": {"arm_id": "string", "strategy": "string", "mutation": "string"},
-  "selection_mode": "string",
-  "exploration_rate_at_selection": float
-}
-```
-
-Required at branch creation time when a branch forks from a bandit decision — the `candidate_arms` list is the `alternatives` payload.
-
-### 6.4 `stagnation_detected`
-
-```json
-{
-  "stream_id": "string",              // the idea lineage
-  "stagnation_level": float,
-  "similarity_signal": float,
-  "response": "string",               // "exploration_rate_bump" | "forced_mutation" | "fork"
-  "triggered_branch_id": "string?"    // if response was "fork"
-}
-```
-
-### 6.5 `adaptation_applied`
-
-```json
-{
-  "weights_before": {...},
-  "weights_after": {...},
-  "thresholds_before": {...},
-  "thresholds_after": {...},
-  "exploration_rate_before": float,
-  "exploration_rate_after": float,
-  "trigger": "string"                 // what caused this adaptation
-}
-```
-
-### 6.6 `memory_retrieved`
-
-```json
-{
-  "query": "string",
-  "retrieved_cycles": [
-    {"cycle_id": "string", "score": float, "stream_id": "string"}
-  ],
-  "retrieval_purpose": "string"       // "context_building" | "lineage_check" | "similarity_search"
-}
-```
-
-### 6.7 `embedding_stored`
-
-```json
-{
-  "cycle_id": "string",
-  "embedding_dim": int,
-  "embedding_hash": "string",         // blake3 of the embedding bytes
-  "vector_store": "string"            // which vector index
-}
-```
-
-Confirms a fire-and-forget vector store write is auditable.
-
----
-
-## 7. Cerebra extension event types
+## 5. Cerebra extension event types
 
 These types are defined in Cerebra's codebase, not in fossic core. They are documented here for cross-project visibility. For the full required-vs-optional field rationale and `indexed_tags` recommendations, see `cerebra_phase6_event_vocabulary.md` in the Cerebra project.
 
-All 24 types are `type_version=1`. PascalCase names, past-tense verbs (event reports something that happened). Agent-trace types write to streams matching `cerebra/agent-trace/<session_id>`; two daemon-control types (`PostureChanged`, `CheckpointSaved`) use distinct stream patterns — see §7.1 for the full stream lock.
+All 24 types are `type_version=1`. PascalCase names, past-tense verbs (event reports something that happened). Agent-trace types write to streams matching `cerebra/agent-trace/<session_id>`; two daemon-control types (`PostureChanged`, `CheckpointSaved`) use distinct stream patterns — see §5.1 for the full stream lock.
 
-### 7.1 Stream pattern lock
+### 5.1 Stream pattern lock
 
 Cerebra emits agent-trace events to streams matching `cerebra/agent-trace/<session_id>` and daemon-control events to the global stream `cerebra/control`.
 
@@ -366,9 +210,9 @@ Cerebra emits agent-trace events to streams matching `cerebra/agent-trace/<sessi
 
 Cerebra also emits to `cerebra/lattice/<lineage_id>` streams with separate vocabulary. That vocabulary is documented in a forthcoming addendum covering Phase 8 lattice aggregate events; it is NOT part of this document.
 
-### 7.2 Session and cycle lifecycle
+### 5.2 Session and cycle lifecycle
 
-#### 7.2.1 `SessionOpened`
+#### 5.2.1 `SessionOpened`
 
 Marks the start of a runtime session. Each session corresponds to one fossic stream. Root event of the session — no causation parent.
 
@@ -387,7 +231,7 @@ Marks the start of a runtime session. Each session corresponds to one fossic str
 
 **Determinism:** `true` — pure bookkeeping. **Causation:** none (root event).
 
-#### 7.2.2 `CycleStarted`
+#### 5.2.2 `CycleStarted`
 
 Marks the start of a cognitive cycle within a session. Bookend pair with `CycleCompleted`.
 
@@ -403,7 +247,7 @@ Marks the start of a cognitive cycle within a session. Bookend pair with `CycleC
 
 **Determinism:** `true` — pure bookkeeping. **Causation:** `SessionOpened` for the parent session.
 
-#### 7.2.3 `CycleCompleted`
+#### 5.2.3 `CycleCompleted`
 
 Marks the end of a cognitive cycle. Bookend pair with `CycleStarted`.
 
@@ -421,9 +265,9 @@ Marks the end of a cognitive cycle. Bookend pair with `CycleStarted`.
 
 **Determinism:** `true` — pure bookkeeping derived from cycle execution. **Causation:** `CycleStarted` for the same `cycle_id`.
 
-### 7.3 Step execution
+### 5.3 Step execution
 
-#### 7.3.1 `StepStarted`
+#### 5.3.1 `StepStarted`
 
 Marks the start of one cognitive step within a cycle. A cycle may execute many steps.
 
@@ -440,7 +284,7 @@ Marks the start of one cognitive step within a cycle. A cycle may execute many s
 
 **Determinism:** `true` — bookkeeping. **Causation:** most recent `ClutchDecisionMade` in the cycle that selected this step (or `CycleStarted` for the first step).
 
-#### 7.3.2 `ContextPacketBuilt`
+#### 5.3.2 `ContextPacketBuilt`
 
 The retrieval pipeline assembled the ContextPacket for this step.
 
@@ -461,7 +305,7 @@ The retrieval pipeline assembled the ContextPacket for this step.
 
 **Determinism:** `false` — retrieval involves embedding similarity which has model dependencies. **Causation:** `StepStarted`.
 
-#### 7.3.3 `StepExecuted`
+#### 5.3.3 `StepExecuted`
 
 The cognitive step ran (LLM produced output). Captures the step's input and output summary.
 
@@ -483,9 +327,9 @@ The cognitive step ran (LLM produced output). Captures the step's input and outp
 
 **Determinism:** `false` — LLM output is non-deterministic. **Causation:** `ContextPacketBuilt` for the same step.
 
-### 7.4 Prediction and evaluation
+### 5.4 Prediction and evaluation
 
-#### 7.4.1 `PredictionMade`
+#### 5.4.1 `PredictionMade`
 
 Before a step executes, a prediction is recorded about expected output quality.
 
@@ -504,7 +348,7 @@ Before a step executes, a prediction is recorded about expected output quality.
 
 **Determinism:** `false` — depends on prior cycle state. **Causation:** `StepStarted` for the same step.
 
-#### 7.4.2 `SignalEvaluated`
+#### 5.4.2 `SignalEvaluated`
 
 One signal scored the step's output. Six of these fire per step (one per signal in the six-signal epistemology: `COHERENCE`, `GROUNDEDNESS`, `GENERATIVITY`, `RELEVANCE`, `PRECISION`, `EPISTEMIC_HUMILITY`).
 
@@ -525,7 +369,7 @@ One signal scored the step's output. Six of these fire per step (one per signal 
 
 **Determinism:** `false` — LLM-based evaluation. **Causation:** `StepExecuted` for the same step. **Note:** `checklist_details` is NOT exported to OTel (high cardinality).
 
-#### 7.4.3 `EvaluationComposed`
+#### 5.4.3 `EvaluationComposed`
 
 The six signals were composed into a composite evaluation per the weighted formula (`Σ(signal_i × weight_i)`).
 
@@ -546,7 +390,7 @@ The six signals were composed into a composite evaluation per the weighted formu
 
 **Determinism:** `true` — pure function of `SignalEvaluated` outputs and weights. **Causation:** most recent `SignalEvaluated` for the step (chains back through all six).
 
-#### 7.4.4 `OutcomeRecorded`
+#### 5.4.4 `OutcomeRecorded`
 
 Compares the prediction to the actual evaluation, computes prediction error.
 
@@ -567,7 +411,7 @@ Compares the prediction to the actual evaluation, computes prediction error.
 
 **Determinism:** `true` — pure subtraction of `EvaluationComposed` and `PredictionMade`. **Causation:** `EvaluationComposed` for the step.
 
-#### 7.4.5 `PredictionSevereMiss`
+#### 5.4.5 `PredictionSevereMiss`
 
 Emitted alongside `OutcomeRecorded` when `error_classification` is `severe`. Allows targeted subscriber attention to severe misses without filtering all `OutcomeRecorded` events.
 
@@ -585,11 +429,11 @@ Emitted alongside `OutcomeRecorded` when `error_classification` is `severe`. All
 
 **Determinism:** `true` — derived from `OutcomeRecorded`. **Causation:** `OutcomeRecorded` for the step.
 
-### 7.5 Control decisions
+### 5.5 Control decisions
 
 > **Causation topology for catalyst events:** When the Clutch escalates (`escalate_to_catalyst: true`), the catalyst sub-flow (`CatalystInvoked → CatalystArmSelected`) is a **sibling branch** from `ClutchDecisionMade`, not a continuation of the step's main causal chain. `ClutchDecisionMade` remains the causation parent of whatever action event follows (`LeewayGrantApplied`, `MemoryWriteFromCycle`, etc.); the catalyst events form their own chain off `ClutchDecisionMade`. When walking causation for cross-stream visualization, the catalyst sub-chain is a sibling branch, not main-line.
 
-#### 7.5.1 `ClutchDecisionMade`
+#### 5.5.1 `ClutchDecisionMade`
 
 The Clutch evaluated signals plus prediction error plus working memory state and produced a typed action decision.
 
@@ -611,7 +455,7 @@ The Clutch evaluated signals plus prediction error plus working memory state and
 
 **Determinism:** `true` — Clutch is a deterministic cascade given identical inputs. **Causation:** `OutcomeRecorded` (or `EvaluationComposed` if no prediction was made).
 
-#### 7.5.2 `CatalystInvoked`
+#### 5.5.2 `CatalystInvoked`
 
 The Catalyst was called to select a strategy arm when the Clutch escalated. Emitted immediately before `CatalystEngine.select()` is called.
 
@@ -626,7 +470,7 @@ The Catalyst was called to select a strategy arm when the Clutch escalated. Emit
 
 **Determinism:** `true` — bookkeeping. **Causation:** Auto-chained from `ClutchDecisionMade` (via `EventEmitter._last_event_id` at the emission point). `cascade_depth` and `escalate_to_catalyst` on the triggering `ClutchDecisionMade` are the reliable cross-reference; no explicit `causation_id` argument is set at the call site.
 
-#### 7.5.3 `CatalystArmSelected`
+#### 5.5.3 `CatalystArmSelected`
 
 The Catalyst's bandit selected a strategy arm (or determined no arm was available). Two emission paths depending on `CatalystEngine.select()` result.
 
@@ -665,9 +509,9 @@ The Catalyst's bandit selected a strategy arm (or determined no arm was availabl
 
 **Determinism:** `false` (Path A, `weighted_random` sampling is stochastic) / `true` (Path B, deterministic). **Causation:** Auto-chained from `CatalystInvoked` for the same step (via `EventEmitter._last_event_id` at emission).
 
-### 7.6 Safety gate
+### 5.6 Safety gate
 
-#### 7.6.1 `LeewayGrantApplied`
+#### 5.6.1 `LeewayGrantApplied`
 
 The leeway pre-action gate evaluated the proposed action and applied grants from the loaded leeway rules. Fires **before** the action executes.
 
@@ -687,9 +531,9 @@ The leeway pre-action gate evaluated the proposed action and applied grants from
 
 **Determinism:** `true` — leeway rules are deterministic composition-by-union. **Causation:** `ClutchDecisionMade` (or `CatalystArmSelected` if catalyst was invoked) — fires before the action executes per the causal ordering requirement.
 
-### 7.7 Re-injection
+### 5.7 Re-injection
 
-#### 7.7.1 `ContinuationBundleCreated`
+#### 5.7.1 `ContinuationBundleCreated`
 
 A ContinuationBundle was distilled from the current cycle state for re-injection.
 
@@ -715,7 +559,7 @@ A ContinuationBundle was distilled from the current cycle state for re-injection
 
 **Determinism:** `true` — bundle is a deterministic distillation of cycle state. **Causation:** most recent `ClutchDecisionMade` implying continuation, or context budget exhaustion trigger.
 
-#### 7.7.2 `ReinjectionTriggered`
+#### 5.7.2 `ReinjectionTriggered`
 
 Emitted on the **parent** session's stream when a closed cycle triggers re-injection. Fires at cycle close when `outcome="cap_reached"`, no step was accepted, the recursion depth limit has not been reached, and a matching `reinjection_triggers` predicate fires. When the depth limit blocks re-injection, **no event is emitted**.
 
@@ -746,9 +590,9 @@ SessionFlushed [auto-chained via EventEmitter._last_event_id]
 
 **Determinism:** `true` — bookkeeping. **Causation:** Auto-chained from `SessionFlushed` (the immediately prior emit via `EventEmitter._last_event_id`), NOT from `ContinuationBundleCreated`.
 
-### 7.8 Memory updates and session close
+### 5.8 Memory updates and session close
 
-#### 7.8.1 `MemoryWriteFromCycle`
+#### 5.8.1 `MemoryWriteFromCycle`
 
 The cycle wrote new content to memory (episodic record of cycle output). **Now live as of Cerebra v0.4.0 (Phase 10)** — fires on every `EpisodeWriter.write()` call at cycle step cadence.
 
@@ -770,7 +614,7 @@ The cycle wrote new content to memory (episodic record of cycle output). **Now l
 
 **Determinism:** `false` — content depends on LLM output. **Causation:** `ClutchDecisionMade` with action `accept` or `consolidate`.
 
-#### 7.8.2 `SessionFlushed`
+#### 5.8.2 `SessionFlushed`
 
 Session ending event, written when Clutch action is `stop`. Signals that working memory was flushed and the session is being closed.
 
@@ -788,9 +632,9 @@ Session ending event, written when Clutch action is `stop`. Signals that working
 
 **Determinism:** `true` — bookkeeping. **Causation:** `ClutchDecisionMade` with action `stop`.
 
-### 7.9 Consolidation
+### 5.9 Consolidation
 
-#### 7.9.1 `ConsolidationStarted`
+#### 5.9.1 `ConsolidationStarted`
 
 `cerebra consolidate --session <id>` started a consolidation pass for a closed session.
 
@@ -805,7 +649,7 @@ Session ending event, written when Clutch action is `stop`. Signals that working
 
 **Determinism:** `true` — bookkeeping. **Causation:** external (CLI invocation) or automatic post-`SessionFlushed` if configured.
 
-#### 7.9.2 `ConsolidationCompleted`
+#### 5.9.2 `ConsolidationCompleted`
 
 Consolidation produced a summary record.
 
@@ -823,9 +667,9 @@ Consolidation produced a summary record.
 
 **Determinism:** `false` — summary content is LLM-derived. **Causation:** `ConsolidationStarted` for the same `consolidation_id`.
 
-### 7.10 Graph export
+### 5.10 Graph export
 
-#### 7.10.1 `GraphExported`
+#### 5.10.1 `GraphExported`
 
 `cerebra export graph --out <path>` produced a JSON export file.
 
@@ -844,11 +688,11 @@ Consolidation produced a summary record.
 
 **Determinism:** `true` — graph state at export time is deterministic given a fixed event log. **Causation:** external (CLI invocation).
 
-### 7.11 Daemon controls (cerebra serve)
+### 5.11 Daemon controls (cerebra serve)
 
-Events introduced by the `cerebra serve` daemon. Unlike §7.2–§7.10 events, which all write to `cerebra/agent-trace/<session_id>`, daemon-control events use distinct stream patterns — see §7.1 for the full lock.
+Events introduced by the `cerebra serve` daemon. Unlike §5.2–§5.10 events, which all write to `cerebra/agent-trace/<session_id>`, daemon-control events use distinct stream patterns — see §5.1 for the full stream lock.
 
-#### 7.11.1 `PostureChanged`
+#### 5.11.1 `PostureChanged`
 
 **Stream:** `cerebra/control` (global — no session suffix)
 
@@ -870,7 +714,7 @@ No `indexed_tags` — posture is global, not session-scoped.
 
 **Determinism:** `false` — developer action. **Causation:** external (`POST /posture`).
 
-#### 7.11.2 `CheckpointSaved`
+#### 5.11.2 `CheckpointSaved`
 
 **Stream:** `cerebra/agent-trace/<session_id>`
 
@@ -902,11 +746,11 @@ Emitted by `POST /checkpoint` when the developer or a Lattica tile requests a se
 
 ---
 
-## 8. OpenTelemetry GenAI span mapping
+## 6. OpenTelemetry GenAI span mapping
 
 The fossic OTel exporter (optional, subscribed to streams matching configurable patterns) converts agent trace events to OTel GenAI semantic convention spans.
 
-### 8.1 Standard agent-trace mapping
+### 6.1 Standard agent-trace mapping
 
 | Fossic event | OTel span kind | Key OTel attributes |
 |---|---|---|
@@ -916,9 +760,9 @@ The fossic OTel exporter (optional, subscribed to streams matching configurable 
 | `tool_result` | INTERNAL (span end) | `gen_ai.tool.result` (truncated to 1 KB), `fossic.tool.latency_ms` |
 | `reasoning_step` | INTERNAL (single span) | `fossic.reasoning.text` (truncated to 1 KB), `fossic.reasoning.step_type` |
 
-Rhyzome and bons.ai extension types map to INTERNAL spans with `fossic.event_type` set to the extension type name. Their structured fields become span attributes prefixed with `fossic.<type>.*`.
+Extension types from other consumers map to INTERNAL spans with `fossic.event_type` set to the extension type name. Their structured fields become span attributes prefixed with `fossic.<type>.*`.
 
-### 8.2 Cerebra cycle runtime mapping
+### 6.2 Cerebra cycle runtime mapping
 
 The span hierarchy for Cerebra cycle events is: **session → cycle → step**. Session spans contain cycle spans; cycle spans contain step spans. Sub-events within a step (predictions, signal evaluations, evaluation composition, outcome recording, clutch decisions, leeway gate decisions, memory writes) are **span events** on the step span rather than separate child spans — this keeps per-cycle span count bounded and avoids cardinality bloat when steps perform multiple evaluations. The catalyst sub-flow (when invoked) gets its own child sub-span of the step span, containing the arm selection decision.
 
@@ -926,7 +770,7 @@ The span hierarchy for Cerebra cycle events is: **session → cycle → step**. 
 
 **Re-injection:** `ReinjectionTriggered` events set a `gen_ai.cerebra.child_session_id` attribute and link the child session span to the parent via OTel's span link mechanism. The `parent_session_id` attribute on the child `SessionOpened` span closes the link.
 
-**Namespace convention:** Cerebra-specific OTel attributes use the `gen_ai.cerebra.*` prefix. Future consumers add analogous namespaces (`gen_ai.rhyzome.*`, `gen_ai.bonsai.*`) as their OTel integration matures.
+**Namespace convention:** Cerebra-specific OTel attributes use the `gen_ai.cerebra.*` prefix. Future consumers add analogous namespaces (e.g. `gen_ai.ai_stack.*`) as their OTel integration matures.
 
 | Fossic event | OTel span kind | Key OTel attributes |
 |---|---|---|
@@ -956,7 +800,7 @@ The span hierarchy for Cerebra cycle events is: **session → cycle → step**. 
 
 > **Attribute mapping note:** Cerebra payload fields map to OTel attributes via the exporter at emit time. `evaluator_prompt_version` in the `SignalEvaluated` payload becomes `gen_ai.cerebra.signal.basis` on the OTel span event. This preserves the basis information without requiring the Cerebra payload schema to use OTel-specific field names.
 
-### 8.3 Exporter configuration
+### 6.3 Exporter configuration
 
 ```python
 from fossic.otel import OtelExporter, OtelConfig
@@ -964,7 +808,7 @@ from fossic.otel import OtelExporter, OtelConfig
 exporter = OtelExporter(OtelConfig(
     endpoint="localhost:4317",          # OTLP gRPC default
     service_name="fossic",
-    stream_patterns=["*/agent-trace/*", "rhyzome/repair/*", "bonsai/idea/*"],
+    stream_patterns=["*/agent-trace/*", "cerebra/lattice/*"],
     batch_max_events=512,
     batch_max_wait_ms=1000,
 ))
@@ -975,23 +819,23 @@ The exporter subscribes to matching streams in PostCommit mode (no blocking the 
 
 If `endpoint` is unset or the collector is unreachable for >60s, the exporter is a no-op. Local-first means the absence of an observability stack must not block the application.
 
-### 8.4 Span context propagation
+### 6.4 Span context propagation
 
 `correlation_id` on fossic events maps to OTel trace_id (with appropriate truncation/expansion to OTel's 16-byte format). `causation_id` chains form OTel parent-child span relationships. This means consumers with pre-existing OTel infrastructure can see fossic-recorded agent traces in their normal trace explorer (Tempo, Grafana, Jaeger, etc.) with proper causal structure.
 
 ---
 
-## 9. Adding new event types
+## 7. Adding new event types
 
 To add a new standard event type to fossic core (not an extension):
 
 1. Open a proposal documenting the use case, the payload shape, and the determinism implications.
 2. The payload must be representable as JSON-compatible types (objects, arrays, strings, numbers, booleans, null). No binary blobs except as base64-encoded strings or as separate event payloads referenced by id.
-3. The type name uses `snake_case`. Standard types have no namespace prefix; extension types use `<consumer>_<type>` (e.g., `rhyzome_strategy_selected`) or PascalCase with a consumer section in this doc (Cerebra's convention). Choose the casing that matches the consumer codebase's idiom — `snake_case` for Rust consumers (rhyzome, bons.ai), PascalCase for Python consumers (Cerebra).
+3. The type name uses `snake_case`. Standard types have no namespace prefix; extension types use `<consumer>_<type>` (e.g., `ai_stack_inference_started`) or PascalCase with a consumer section in this doc (Cerebra's convention). Choose the casing that matches the consumer codebase's idiom — PascalCase for Python consumers (Cerebra), `snake_case` for Rust-native consumers.
 4. The OTel mapping is specified.
 5. Test vectors are added to the `agent-trace-test-vectors.json` file.
 
-To add a new extension type (rhyzome, bons.ai, Cerebra, or another consumer):
+To add a new extension type (Cerebra, ai-stack, or another consumer):
 
 1. Document it in the consumer's own codebase.
 2. Add a row to the Consumer Extension Registry (§2).

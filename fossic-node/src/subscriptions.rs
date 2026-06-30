@@ -19,7 +19,8 @@ use crate::types::StoredEventJs;
 pub struct FossicSubscription {
     handle: Option<fossic::SubscriptionHandle>,
     /// Sender side used to register pending JS callbacks with the dispatcher.
-    pending_tx: crossbeam_channel::Sender<ThreadsafeFunction<Option<StoredEventJs>, ErrorStrategy::Fatal>>,
+    pending_tx:
+        crossbeam_channel::Sender<ThreadsafeFunction<Option<StoredEventJs>, ErrorStrategy::Fatal>>,
     closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -29,8 +30,9 @@ impl FossicSubscription {
         rx: crossbeam_channel::Receiver<StoredEvent>,
         closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
     ) -> Self {
-        let (pending_tx, pending_rx) =
-            crossbeam_channel::unbounded::<ThreadsafeFunction<Option<StoredEventJs>, ErrorStrategy::Fatal>>();
+        let (pending_tx, pending_rx) = crossbeam_channel::unbounded::<
+            ThreadsafeFunction<Option<StoredEventJs>, ErrorStrategy::Fatal>,
+        >();
 
         let closed_clone = closed.clone();
         std::thread::spawn(move || {
@@ -52,7 +54,10 @@ impl FossicSubscription {
     /// Returns `{value, done: false}` with the event, or `{done: true}` if the
     /// subscription is closed and the queue is empty.
     #[napi]
-    pub fn raw_next(&self, callback: ThreadsafeFunction<Option<StoredEventJs>, ErrorStrategy::Fatal>) {
+    pub fn raw_next(
+        &self,
+        callback: ThreadsafeFunction<Option<StoredEventJs>, ErrorStrategy::Fatal>,
+    ) {
         use std::sync::atomic::Ordering;
         if self.closed.load(Ordering::Acquire) {
             callback.call(None, ThreadsafeFunctionCallMode::NonBlocking);
@@ -89,7 +94,9 @@ impl FossicSubscription {
 /// one-for-one. When closed, drains remaining pending callbacks with `None`.
 fn dispatcher_loop(
     rx: crossbeam_channel::Receiver<StoredEvent>,
-    pending_rx: crossbeam_channel::Receiver<ThreadsafeFunction<Option<StoredEventJs>, ErrorStrategy::Fatal>>,
+    pending_rx: crossbeam_channel::Receiver<
+        ThreadsafeFunction<Option<StoredEventJs>, ErrorStrategy::Fatal>,
+    >,
     closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) {
     use crossbeam_channel::RecvTimeoutError;

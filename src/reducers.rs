@@ -71,10 +71,8 @@ impl<R: Reducer> BoxedReducer for ErasedReducer<R> {
         rmp_serde::to_vec(&self.reducer.initial_state()).map_err(Error::MsgpackEncode)
     }
     fn apply_bytes(&self, state_bytes: &[u8], event_payload: &[u8]) -> Result<Vec<u8>, Error> {
-        let state: R::State =
-            rmp_serde::from_slice(state_bytes).map_err(Error::MsgpackDecode)?;
-        let event: R::Event =
-            rmp_serde::from_slice(event_payload).map_err(Error::MsgpackDecode)?;
+        let state: R::State = rmp_serde::from_slice(state_bytes).map_err(Error::MsgpackDecode)?;
+        let event: R::Event = rmp_serde::from_slice(event_payload).map_err(Error::MsgpackDecode)?;
         let new_state = self.reducer.apply(state, &event);
         rmp_serde::to_vec(&new_state).map_err(Error::MsgpackEncode)
     }
@@ -153,8 +151,7 @@ impl ReducerRegistry {
 
     /// Find the most-specific reducer matching `stream_id`.
     pub fn find_arc(&self, stream_id: &str) -> Option<Arc<dyn BoxedReducer>> {
-        self.find_arc_with_policy(stream_id)
-            .map(|(arc, _)| arc)
+        self.find_arc_with_policy(stream_id).map(|(arc, _)| arc)
     }
 
     /// Find the most-specific reducer + its policy matching `stream_id`.
@@ -189,7 +186,11 @@ impl ReducerRegistry {
     }
 
     /// Register a DynReducer for the given glob pattern with `SnapshotPolicy::Manual`.
-    pub fn register_dyn(&mut self, pattern: &str, reducer: Box<dyn DynReducer>) -> Result<(), Error> {
+    pub fn register_dyn(
+        &mut self,
+        pattern: &str,
+        reducer: Box<dyn DynReducer>,
+    ) -> Result<(), Error> {
         self.register_dyn_with_policy(pattern, reducer, SnapshotPolicy::Manual)
     }
 
@@ -280,9 +281,18 @@ mod tests {
 
     #[test]
     fn glob_star_single_segment() {
-        assert!(crate::glob::matches("cerebra/lattice/*", "cerebra/lattice/abc"));
-        assert!(!crate::glob::matches("cerebra/lattice/*", "cerebra/lattice/abc/sub"));
-        assert!(!crate::glob::matches("cerebra/lattice/*", "cerebra/other/abc"));
+        assert!(crate::glob::matches(
+            "cerebra/lattice/*",
+            "cerebra/lattice/abc"
+        ));
+        assert!(!crate::glob::matches(
+            "cerebra/lattice/*",
+            "cerebra/lattice/abc/sub"
+        ));
+        assert!(!crate::glob::matches(
+            "cerebra/lattice/*",
+            "cerebra/other/abc"
+        ));
     }
 
     #[test]
@@ -295,8 +305,14 @@ mod tests {
 
     #[test]
     fn glob_exact_match() {
-        assert!(crate::glob::matches("policy-scout/audit", "policy-scout/audit"));
-        assert!(!crate::glob::matches("policy-scout/audit", "policy-scout/other"));
+        assert!(crate::glob::matches(
+            "policy-scout/audit",
+            "policy-scout/audit"
+        ));
+        assert!(!crate::glob::matches(
+            "policy-scout/audit",
+            "policy-scout/other"
+        ));
     }
 
     #[test]
@@ -313,11 +329,17 @@ mod tests {
 
     #[test]
     fn ambiguity_same_specificity() {
-        assert!(patterns_may_overlap("cerebra/lattice/*", "cerebra/lattice/*"));
+        assert!(patterns_may_overlap(
+            "cerebra/lattice/*",
+            "cerebra/lattice/*"
+        ));
     }
 
     #[test]
     fn no_overlap_different_literals() {
-        assert!(!patterns_may_overlap("cerebra/lattice/*", "rhyzome/repair/*"));
+        assert!(!patterns_may_overlap(
+            "cerebra/lattice/*",
+            "rhyzome/repair/*"
+        ));
     }
 }

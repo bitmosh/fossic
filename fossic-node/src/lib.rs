@@ -10,7 +10,7 @@ pub use store::Store;
 pub use subscriptions::FossicSubscription;
 pub use types::{
     AppendJs, BranchInfoJs, CreateBranchJs, EventId, OpenOptionsJs, ReadOutcomeJs, ReadQueryJs,
-    SamplingModeJs, StreamInfoJs, StoredEventJs, SubscribeQueryJs, TruncationCursorJs,
+    SamplingModeJs, StoredEventJs, StreamInfoJs, SubscribeQueryJs, TruncationCursorJs,
 };
 
 /// Fossic v1 napi-rs Node.js binding.

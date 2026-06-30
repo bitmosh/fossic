@@ -1,5 +1,8 @@
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
-use fossic::{BranchInfo, ReadOutcome, SamplingMode, StoredEvent, StreamInfo, TruncationCursor, TruncationReason, WalkDirection};
+use fossic::{
+    BranchInfo, ReadOutcome, SamplingMode, StoredEvent, StreamInfo, TruncationCursor,
+    TruncationReason, WalkDirection,
+};
 use serde::{Deserialize, Serialize};
 
 // ── Serialized types for JSON IPC ─────────────────────────────────────────────
@@ -119,7 +122,11 @@ impl SerializedReadOutcome {
                 reason: None,
                 next_cursor: None,
             },
-            ReadOutcome::Truncated { data, cursor, reason } => SerializedReadOutcome {
+            ReadOutcome::Truncated {
+                data,
+                cursor,
+                reason,
+            } => SerializedReadOutcome {
                 kind: "truncated",
                 results: data.iter().map(SerializedEvent::from_stored).collect(),
                 reason: Some(match reason {
@@ -147,7 +154,9 @@ pub fn parse_direction(s: &str) -> Result<WalkDirection, String> {
         "forward" | "Forward" => Ok(WalkDirection::Forward),
         "backward" | "Backward" => Ok(WalkDirection::Backward),
         "both" | "Both" => Ok(WalkDirection::Both),
-        other => Err(format!("unknown direction: {other}; use 'forward', 'backward', or 'both'")),
+        other => Err(format!(
+            "unknown direction: {other}; use 'forward', 'backward', or 'both'"
+        )),
     }
 }
 
@@ -160,18 +169,23 @@ pub fn parse_sampling_mode(v: Option<serde_json::Value>) -> Result<SamplingMode,
     let Some(v) = v else {
         return Ok(SamplingMode::Exhaustive);
     };
-    let kind = v.get("kind").and_then(|k| k.as_str()).unwrap_or("exhaustive");
+    let kind = v
+        .get("kind")
+        .and_then(|k| k.as_str())
+        .unwrap_or("exhaustive");
     match kind {
         "exhaustive" => Ok(SamplingMode::Exhaustive),
         "breadthFirst" | "breadth_first" => {
-            let n = v.get("maxPerLevel")
+            let n = v
+                .get("maxPerLevel")
                 .or_else(|| v.get("max_per_level"))
                 .and_then(|n| n.as_u64())
                 .unwrap_or(100) as usize;
             Ok(SamplingMode::BreadthFirst { max_per_level: n })
         }
         "adaptive" => {
-            let n = v.get("targetCount")
+            let n = v
+                .get("targetCount")
                 .or_else(|| v.get("target_count"))
                 .and_then(|n| n.as_u64())
                 .unwrap_or(100) as usize;

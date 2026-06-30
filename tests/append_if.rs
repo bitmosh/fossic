@@ -2,8 +2,8 @@ use fossic::{Append, Error, OpenOptions, Store};
 
 fn open_tmp() -> (Store, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join("test.db"), OpenOptions::default())
-        .expect("open store");
+    let store =
+        Store::open(dir.path().join("test.db"), OpenOptions::default()).expect("open store");
     (store, dir)
 }
 
@@ -27,7 +27,10 @@ fn append_if_true_condition_appends() {
 
     let result = store.append_if(ev("cond/a"), |_conn| Ok(true)).unwrap();
 
-    assert!(result.is_some(), "true condition must produce Some(event_id)");
+    assert!(
+        result.is_some(),
+        "true condition must produce Some(event_id)"
+    );
     let events = store
         .read_range(fossic::ReadQuery::stream("cond/a"))
         .unwrap();
@@ -45,7 +48,11 @@ fn append_if_false_condition_does_not_append() {
     let events = store
         .read_range(fossic::ReadQuery::stream("cond/b"))
         .unwrap();
-    assert_eq!(events.len(), 0, "no event must be written when condition is false");
+    assert_eq!(
+        events.len(),
+        0,
+        "no event must be written when condition is false"
+    );
 }
 
 #[test]
@@ -57,15 +64,17 @@ fn append_if_false_condition_leaves_version_unchanged() {
     store.append(ev("cond/ver")).unwrap();
 
     // Conditional append fails.
-    store.append_if(
-        Append {
-            stream_id: "cond/ver".to_string(),
-            event_type: "Other".to_string(),
-            payload: serde_json::json!({"y": 2}),
-            ..Default::default()
-        },
-        |_conn| Ok(false),
-    ).unwrap();
+    store
+        .append_if(
+            Append {
+                stream_id: "cond/ver".to_string(),
+                event_type: "Other".to_string(),
+                payload: serde_json::json!({"y": 2}),
+                ..Default::default()
+            },
+            |_conn| Ok(false),
+        )
+        .unwrap();
 
     // Stream must still have exactly version 0.
     let events = store
@@ -81,35 +90,42 @@ fn append_if_condition_sees_current_state() {
     decl(&store, "cond/state");
 
     store.append(ev("cond/state")).unwrap(); // version 0
-    store.append(
-        Append {
+    store
+        .append(Append {
             stream_id: "cond/state".to_string(),
             event_type: "Second".to_string(),
             payload: serde_json::json!({"n": 2}),
             ..Default::default()
-        }
-    ).unwrap(); // version 1
+        })
+        .unwrap(); // version 1
 
     // Condition: only append if current max version == 1.
-    let result = store.append_if(
-        Append {
-            stream_id: "cond/state".to_string(),
-            event_type: "Third".to_string(),
-            payload: serde_json::json!({"n": 3}),
-            ..Default::default()
-        },
-        |conn| {
-            let v: i64 = conn.query_row(
-                "SELECT COALESCE(MAX(version), -1) FROM events \
+    let result = store
+        .append_if(
+            Append {
+                stream_id: "cond/state".to_string(),
+                event_type: "Third".to_string(),
+                payload: serde_json::json!({"n": 3}),
+                ..Default::default()
+            },
+            |conn| {
+                let v: i64 = conn
+                    .query_row(
+                        "SELECT COALESCE(MAX(version), -1) FROM events \
                  WHERE stream_id = 'cond/state' AND branch = 'main'",
-                [],
-                |r| r.get(0),
-            ).map_err(|e| Error::Internal(e.to_string().into()))?;
-            Ok(v == 1)
-        },
-    ).unwrap();
+                        [],
+                        |r| r.get(0),
+                    )
+                    .map_err(|e| Error::Internal(e.to_string()))?;
+                Ok(v == 1)
+            },
+        )
+        .unwrap();
 
-    assert!(result.is_some(), "condition met: version==1 so append should succeed");
+    assert!(
+        result.is_some(),
+        "condition met: version==1 so append should succeed"
+    );
     let events = store
         .read_range(fossic::ReadQuery::stream("cond/state"))
         .unwrap();
@@ -124,29 +140,40 @@ fn append_if_version_guard_rejects_stale_version() {
     store.append(ev("cond/stale")).unwrap(); // version 0
 
     // Caller thinks version is -1 (empty stream) — stale read.
-    let result = store.append_if(
-        Append {
-            stream_id: "cond/stale".to_string(),
-            event_type: "Stale".to_string(),
-            payload: serde_json::json!({}),
-            ..Default::default()
-        },
-        |conn| {
-            let v: i64 = conn.query_row(
-                "SELECT COALESCE(MAX(version), -1) FROM events \
+    let result = store
+        .append_if(
+            Append {
+                stream_id: "cond/stale".to_string(),
+                event_type: "Stale".to_string(),
+                payload: serde_json::json!({}),
+                ..Default::default()
+            },
+            |conn| {
+                let v: i64 = conn
+                    .query_row(
+                        "SELECT COALESCE(MAX(version), -1) FROM events \
                  WHERE stream_id = 'cond/stale' AND branch = 'main'",
-                [],
-                |r| r.get(0),
-            ).map_err(|e| Error::Internal(e.to_string().into()))?;
-            Ok(v == -1) // expects empty stream, but it has version 0
-        },
-    ).unwrap();
+                        [],
+                        |r| r.get(0),
+                    )
+                    .map_err(|e| Error::Internal(e.to_string()))?;
+                Ok(v == -1) // expects empty stream, but it has version 0
+            },
+        )
+        .unwrap();
 
-    assert!(result.is_none(), "stale version guard must reject the append");
+    assert!(
+        result.is_none(),
+        "stale version guard must reject the append"
+    );
     let events = store
         .read_range(fossic::ReadQuery::stream("cond/stale"))
         .unwrap();
-    assert_eq!(events.len(), 1, "original event must remain, no new event written");
+    assert_eq!(
+        events.len(),
+        1,
+        "original event must remain, no new event written"
+    );
 }
 
 #[test]

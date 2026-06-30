@@ -103,15 +103,15 @@ fn append_add_ret(store: &Store, stream_id: &str, value: i64) -> EventId {
 #[test]
 fn register_reducer_exact_pattern() {
     let (store, _dir) = open_tmp();
-    store.declare_stream("policy-scout/audit", "t", None).unwrap();
+    store
+        .declare_stream("policy-scout/audit", "t", None)
+        .unwrap();
     store
         .register_reducer("policy-scout/audit", SumReducer)
         .unwrap();
     append_add(&store, "policy-scout/audit", 5);
 
-    let state: SumState = store
-        .read_state("policy-scout/audit", "main")
-        .unwrap();
+    let state: SumState = store.read_state("policy-scout/audit", "main").unwrap();
     assert_eq!(state.count, 1);
     assert_eq!(state.total, 5);
 }
@@ -119,8 +119,12 @@ fn register_reducer_exact_pattern() {
 #[test]
 fn register_reducer_wildcard_star() {
     let (store, _dir) = open_tmp();
-    store.declare_stream("cerebra/lattice/abc", "t", None).unwrap();
-    store.declare_stream("cerebra/lattice/def", "t", None).unwrap();
+    store
+        .declare_stream("cerebra/lattice/abc", "t", None)
+        .unwrap();
+    store
+        .declare_stream("cerebra/lattice/def", "t", None)
+        .unwrap();
     store
         .register_reducer("cerebra/lattice/*", SumReducer)
         .unwrap();
@@ -137,8 +141,12 @@ fn register_reducer_wildcard_star() {
 #[test]
 fn register_reducer_wildcard_double_star() {
     let (store, _dir) = open_tmp();
-    store.declare_stream("cerebra/lattice/abc", "t", None).unwrap();
-    store.declare_stream("cerebra/lattice/abc/sub", "t", None).unwrap();
+    store
+        .declare_stream("cerebra/lattice/abc", "t", None)
+        .unwrap();
+    store
+        .declare_stream("cerebra/lattice/abc/sub", "t", None)
+        .unwrap();
     store.register_reducer("cerebra/**", SumReducer).unwrap();
 
     append_add(&store, "cerebra/lattice/abc", 1);
@@ -176,7 +184,9 @@ fn read_state_no_reducer_fails() {
 #[test]
 fn ambiguous_patterns_same_specificity_fails() {
     let (store, _dir) = open_tmp();
-    store.register_reducer("cerebra/lattice/*", SumReducer).unwrap();
+    store
+        .register_reducer("cerebra/lattice/*", SumReducer)
+        .unwrap();
 
     // Same specificity (2 literal segments) — ambiguous
     let result = store.register_reducer("cerebra/lattice/*", CatReducer);
@@ -190,12 +200,20 @@ fn ambiguous_patterns_same_specificity_fails() {
 #[test]
 fn more_specific_pattern_does_not_conflict() {
     let (store, _dir) = open_tmp();
-    store.declare_stream("cerebra/lattice/abc", "t", None).unwrap();
-    store.declare_stream("cerebra/lattice/special", "t", None).unwrap();
+    store
+        .declare_stream("cerebra/lattice/abc", "t", None)
+        .unwrap();
+    store
+        .declare_stream("cerebra/lattice/special", "t", None)
+        .unwrap();
 
     // "cerebra/lattice/special" is more specific (3 literals) than "cerebra/lattice/*" (2).
-    store.register_reducer("cerebra/lattice/*", SumReducer).unwrap();
-    store.register_reducer("cerebra/lattice/special", CatReducer).unwrap();
+    store
+        .register_reducer("cerebra/lattice/*", SumReducer)
+        .unwrap();
+    store
+        .register_reducer("cerebra/lattice/special", CatReducer)
+        .unwrap();
 
     append_add(&store, "cerebra/lattice/abc", 5);
     store
@@ -343,13 +361,19 @@ impl Reducer for PanickingReducer {
 fn panicking_reducer_returns_error_not_unwind() {
     let (store, _dir) = open_tmp();
     store.declare_stream("panic/stream", "test", None).unwrap();
-    store.register_reducer("panic/stream", PanickingReducer).unwrap();
+    store
+        .register_reducer("panic/stream", PanickingReducer)
+        .unwrap();
 
     append_add(&store, "panic/stream", 42);
 
     let result: Result<SumState, Error> = store.read_state("panic/stream", "main");
     match result {
-        Err(Error::ReducerPanicked { reducer_name, panic_message, .. }) => {
+        Err(Error::ReducerPanicked {
+            reducer_name,
+            panic_message,
+            ..
+        }) => {
             assert_eq!(reducer_name, "panicking_reducer");
             assert!(
                 panic_message.contains("deliberate test panic"),
@@ -364,15 +388,24 @@ fn panicking_reducer_returns_error_not_unwind() {
 fn panicking_reducer_error_includes_event_id() {
     let (store, _dir) = open_tmp();
     store.declare_stream("panic/eventid", "test", None).unwrap();
-    store.register_reducer("panic/eventid", PanickingReducer).unwrap();
+    store
+        .register_reducer("panic/eventid", PanickingReducer)
+        .unwrap();
 
     let event_id = append_add_ret(&store, "panic/eventid", 1);
 
     let result: Result<SumState, Error> = store.read_state("panic/eventid", "main");
     match result {
         Err(Error::ReducerPanicked { event_id_hex, .. }) => {
-            let expected_hex: String = event_id.as_bytes().iter().map(|b| format!("{b:02x}")).collect();
-            assert_eq!(event_id_hex, expected_hex, "event_id_hex must match the appended event's id");
+            let expected_hex: String = event_id
+                .as_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            assert_eq!(
+                event_id_hex, expected_hex,
+                "event_id_hex must match the appended event's id"
+            );
         }
         other => panic!("expected ReducerPanicked, got: {other:?}"),
     }

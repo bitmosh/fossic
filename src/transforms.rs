@@ -53,15 +53,27 @@ mod tests {
 
     #[test]
     fn pattern_wildcard_last_segment() {
-        assert!(pattern_matches("cerebra/lattice/*", "cerebra/lattice/abc123"));
+        assert!(pattern_matches(
+            "cerebra/lattice/*",
+            "cerebra/lattice/abc123"
+        ));
         assert!(!pattern_matches("cerebra/lattice/*", "cerebra/lattice"));
-        assert!(!pattern_matches("cerebra/lattice/*", "cerebra/other/abc123"));
+        assert!(!pattern_matches(
+            "cerebra/lattice/*",
+            "cerebra/other/abc123"
+        ));
     }
 
     #[test]
     fn pattern_wildcard_first_segment() {
-        assert!(pattern_matches("*/agent-trace/events", "cerebra/agent-trace/events"));
-        assert!(!pattern_matches("*/agent-trace/events", "cerebra/other/events"));
+        assert!(pattern_matches(
+            "*/agent-trace/events",
+            "cerebra/agent-trace/events"
+        ));
+        assert!(!pattern_matches(
+            "*/agent-trace/events",
+            "cerebra/other/events"
+        ));
     }
 
     #[test]
@@ -73,7 +85,10 @@ mod tests {
     #[test]
     fn pattern_double_star() {
         assert!(pattern_matches("cerebra/**", "cerebra/lattice/abc"));
-        assert!(pattern_matches("cerebra/**", "cerebra/agent-trace/sess_123"));
+        assert!(pattern_matches(
+            "cerebra/**",
+            "cerebra/agent-trace/sess_123"
+        ));
         assert!(pattern_matches("cerebra/**", "cerebra"));
         assert!(!pattern_matches("cerebra/**", "other/lattice/abc"));
     }

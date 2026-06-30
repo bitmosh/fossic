@@ -1,9 +1,9 @@
-use fossic::{Append, OpenOptions, Store, Upcaster, Error};
+use fossic::{Append, Error, OpenOptions, Store, Upcaster};
 
 fn open_tmp() -> (Store, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join("test.db"), OpenOptions::default())
-        .expect("open store");
+    let store =
+        Store::open(dir.path().join("test.db"), OpenOptions::default()).expect("open store");
     (store, dir)
 }
 
@@ -51,7 +51,9 @@ impl Upcaster for ScoreV2toV3 {
 #[test]
 fn upcaster_v1_to_v2_applied_at_read_time() {
     let (store, _dir) = open_tmp();
-    store.declare_stream("cerebra/memory/s1", "test", None).unwrap();
+    store
+        .declare_stream("cerebra/memory/s1", "test", None)
+        .unwrap();
 
     // Store a v1 event.
     let id = store
@@ -82,7 +84,9 @@ fn upcaster_v1_to_v2_applied_at_read_time() {
 #[test]
 fn chained_upcasters_v1_to_v3() {
     let (store, _dir) = open_tmp();
-    store.declare_stream("cerebra/memory/s1", "test", None).unwrap();
+    store
+        .declare_stream("cerebra/memory/s1", "test", None)
+        .unwrap();
 
     let id = store
         .append(Append {
@@ -94,8 +98,12 @@ fn chained_upcasters_v1_to_v3() {
         })
         .unwrap();
 
-    store.register_upcaster("MemoryScored", 1, 2, ScoreV1toV2).unwrap();
-    store.register_upcaster("MemoryScored", 2, 3, ScoreV2toV3).unwrap();
+    store
+        .register_upcaster("MemoryScored", 1, 2, ScoreV1toV2)
+        .unwrap();
+    store
+        .register_upcaster("MemoryScored", 2, 3, ScoreV2toV3)
+        .unwrap();
 
     let event = store.read_one(id).unwrap().unwrap();
     assert_eq!(event.type_version, 1, "stored type_version unchanged");
@@ -109,7 +117,9 @@ fn chained_upcasters_v1_to_v3() {
 #[test]
 fn read_range_applies_upcaster() {
     let (store, _dir) = open_tmp();
-    store.declare_stream("cerebra/memory/s2", "test", None).unwrap();
+    store
+        .declare_stream("cerebra/memory/s2", "test", None)
+        .unwrap();
 
     for i in 0..3 {
         store
@@ -123,7 +133,9 @@ fn read_range_applies_upcaster() {
             .unwrap();
     }
 
-    store.register_upcaster("MemoryScored", 1, 2, ScoreV1toV2).unwrap();
+    store
+        .register_upcaster("MemoryScored", 1, 2, ScoreV1toV2)
+        .unwrap();
 
     let events = store
         .read_range(fossic::ReadQuery::stream("cerebra/memory/s2"))
@@ -132,7 +144,10 @@ fn read_range_applies_upcaster() {
     for e in &events {
         let val: serde_json::Value = e.deserialize_payload_json().unwrap();
         assert!(val.get("score").is_none(), "score removed in all events");
-        assert!(val.get("raw_score").is_some(), "raw_score present in all events");
+        assert!(
+            val.get("raw_score").is_some(),
+            "raw_score present in all events"
+        );
     }
 }
 
@@ -161,7 +176,9 @@ fn no_upcaster_passthrough() {
 fn upcaster_registered_after_append_applies_retroactively() {
     // Existing events in the store get upcast when a new upcaster is registered.
     let (store, _dir) = open_tmp();
-    store.declare_stream("cerebra/memory/retro", "test", None).unwrap();
+    store
+        .declare_stream("cerebra/memory/retro", "test", None)
+        .unwrap();
 
     let id = store
         .append(Append {
@@ -179,7 +196,9 @@ fn upcaster_registered_after_append_applies_retroactively() {
     assert_eq!(val_before["score"], 55);
 
     // Register upcaster.
-    store.register_upcaster("MemoryScored", 1, 2, ScoreV1toV2).unwrap();
+    store
+        .register_upcaster("MemoryScored", 1, 2, ScoreV1toV2)
+        .unwrap();
 
     // Read after registration — upcast payload.
     let after = store.read_one(id).unwrap().unwrap();

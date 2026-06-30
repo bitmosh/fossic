@@ -31,12 +31,10 @@ impl EventId {
         }
         let mut bytes = [0u8; 32];
         for (i, chunk) in s.as_bytes().chunks(2).enumerate() {
-            let hi = hex_nibble(chunk[0]).map_err(|c| {
-                Error::InvalidEventId(format!("invalid hex char '{}'", c))
-            })?;
-            let lo = hex_nibble(chunk[1]).map_err(|c| {
-                Error::InvalidEventId(format!("invalid hex char '{}'", c))
-            })?;
+            let hi = hex_nibble(chunk[0])
+                .map_err(|c| Error::InvalidEventId(format!("invalid hex char '{}'", c)))?;
+            let lo = hex_nibble(chunk[1])
+                .map_err(|c| Error::InvalidEventId(format!("invalid hex char '{}'", c)))?;
             bytes[i] = (hi << 4) | lo;
         }
         Ok(EventId(bytes))
@@ -86,9 +84,7 @@ impl rusqlite::ToSql for EventId {
 }
 
 impl rusqlite::types::FromSql for EventId {
-    fn column_result(
-        value: rusqlite::types::ValueRef<'_>,
-    ) -> rusqlite::types::FromSqlResult<Self> {
+    fn column_result(value: rusqlite::types::ValueRef<'_>) -> rusqlite::types::FromSqlResult<Self> {
         match value {
             rusqlite::types::ValueRef::Blob(b) if b.len() == 32 => {
                 let mut arr = [0u8; 32];
@@ -199,7 +195,8 @@ pub struct OpenOptions {
     pub on_first_open: FirstOpenPolicy,
     /// Optional similarity search backend. `None` (default) means similarity queries return
     /// `Error::NotImplemented`. Inject a custom provider for semantic search on event payloads.
-    pub similarity_provider: Option<std::sync::Arc<dyn crate::similarity::SimilaritySearchProvider>>,
+    pub similarity_provider:
+        Option<std::sync::Arc<dyn crate::similarity::SimilaritySearchProvider>>,
     /// Number of read connections opened at store startup and held in the pool.
     /// Defaults to 4. All read methods (read_range, aggregate, etc.) draw from this pool
     /// and return their connection on drop, so reads never block each other or the write path.
@@ -448,10 +445,11 @@ pub enum SamplingMode {
 ///
 /// `EveryNSeconds` and `StateAdaptive` are Phase 7/v1.2.1 dependencies and
 /// return `Error::NotImplemented` at registration time until those phases land.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum SnapshotPolicy {
     /// Current behavior: caller invokes `take_snapshot` explicitly.
     /// Default for backward compatibility.
+    #[default]
     Manual,
 
     /// Take a snapshot every N events applied to the reducer across `read_state`
@@ -472,10 +470,4 @@ pub enum SnapshotPolicy {
         target_replay_cost_us: u32,
         min_events_between: u32,
     },
-}
-
-impl Default for SnapshotPolicy {
-    fn default() -> Self {
-        SnapshotPolicy::Manual
-    }
 }

@@ -1,4 +1,6 @@
-use fossic::{Aggregate, AggregateQuery, OpenOptions, ReadOutcome, StoredEvent, Store, TruncationReason};
+use fossic::{
+    Aggregate, AggregateQuery, OpenOptions, ReadOutcome, Store, StoredEvent, TruncationReason,
+};
 
 fn temp_store() -> Store {
     let path = tempfile::NamedTempFile::new().unwrap().into_temp_path();
@@ -120,7 +122,11 @@ fn aggregate_bounded_event_count_truncation() {
         .aggregate_bounded(standard_query(), TypeCollector::default(), Some(3), None)
         .unwrap();
     match outcome {
-        ReadOutcome::Truncated { data, reason, cursor } => {
+        ReadOutcome::Truncated {
+            data,
+            reason,
+            cursor,
+        } => {
             assert_eq!(data.len(), 3, "exactly 3 events folded before cut");
             assert_eq!(reason, TruncationReason::ResultCount);
             assert!(cursor.is_none(), "aggregate_bounded cursor is always None");
@@ -152,7 +158,11 @@ fn aggregate_bounded_byte_truncation_at_least_one() {
         .aggregate_bounded(standard_query(), TypeCollector::default(), None, Some(1))
         .unwrap();
     match outcome {
-        ReadOutcome::Truncated { data, reason, cursor } => {
+        ReadOutcome::Truncated {
+            data,
+            reason,
+            cursor,
+        } => {
             assert_eq!(data.len(), 1, "at-least-one: exactly one event folded");
             assert_eq!(reason, TruncationReason::ByteSize);
             assert!(cursor.is_none());
@@ -167,7 +177,12 @@ fn aggregate_bounded_count_wins_over_bytes() {
     populate(&store, 6);
     // Both budgets set; event_count=2 fires before bytes for small events.
     let outcome = store
-        .aggregate_bounded(standard_query(), TypeCollector::default(), Some(2), Some(1_000_000))
+        .aggregate_bounded(
+            standard_query(),
+            TypeCollector::default(),
+            Some(2),
+            Some(1_000_000),
+        )
         .unwrap();
     match outcome {
         ReadOutcome::Truncated { data, reason, .. } => {
@@ -199,7 +214,11 @@ fn aggregate_bounded_truncated_finalizes_partial_state() {
         .aggregate_bounded(standard_query(), Summator::default(), Some(3), None)
         .unwrap();
     match outcome {
-        ReadOutcome::Truncated { data, reason, cursor } => {
+        ReadOutcome::Truncated {
+            data,
+            reason,
+            cursor,
+        } => {
             assert_eq!(data, 3, "partial finalize: sum of first 3 events (0+1+2)");
             assert_eq!(reason, TruncationReason::ResultCount);
             assert!(cursor.is_none());

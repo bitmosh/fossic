@@ -1,7 +1,7 @@
 use fossic::{
-    Append, BranchInfo, BranchSegment, CheckpointMode, CreateBranch, EncryptionMode,
-    EventId, FirstOpenPolicy, OpenOptions, ReadOutcome, ReadQuery, SamplingMode, SnapshotInfo,
-    StoredEvent, StreamInfo, TruncationCursor, TruncationReason,
+    Append, BranchInfo, BranchSegment, CheckpointMode, CreateBranch, EncryptionMode, EventId,
+    FirstOpenPolicy, OpenOptions, ReadOutcome, ReadQuery, SamplingMode, SnapshotInfo, StoredEvent,
+    StreamInfo, TruncationCursor, TruncationReason,
 };
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyType};
@@ -11,22 +11,17 @@ use crate::errors::to_py_err;
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Decode a msgpack payload to a Python object via JSON as an intermediate.
-pub fn payload_to_py<'py>(
-    py: Python<'py>,
-    bytes: &[u8],
-) -> PyResult<Bound<'py, PyAny>> {
-    let v: serde_json::Value =
-        rmp_serde::from_slice(bytes).map_err(|e| pyo3::exceptions::PyValueError::new_err(
-            format!("msgpack decode error: {e}"),
-        ))?;
+pub fn payload_to_py<'py>(py: Python<'py>, bytes: &[u8]) -> PyResult<Bound<'py, PyAny>> {
+    let v: serde_json::Value = rmp_serde::from_slice(bytes).map_err(|e| {
+        pyo3::exceptions::PyValueError::new_err(format!("msgpack decode error: {e}"))
+    })?;
     json_to_py(py, &v)
 }
 
 /// Convert a serde_json::Value to a Python object via `json.loads`.
 pub fn json_to_py<'py>(py: Python<'py>, v: &serde_json::Value) -> PyResult<Bound<'py, PyAny>> {
-    let s = serde_json::to_string(v).map_err(|e| {
-        pyo3::exceptions::PyValueError::new_err(format!("json serialize: {e}"))
-    })?;
+    let s = serde_json::to_string(v)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("json serialize: {e}")))?;
     py.import("json")?.call_method1("loads", (s.as_str(),))
 }
 
@@ -36,9 +31,8 @@ pub fn py_to_json(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<serde_json
         .import("json")?
         .call_method1("dumps", (obj,))?
         .extract()?;
-    serde_json::from_str(&s).map_err(|e| {
-        pyo3::exceptions::PyValueError::new_err(format!("json deserialize: {e}"))
-    })
+    serde_json::from_str(&s)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("json deserialize: {e}")))
 }
 
 // ── EventId ───────────────────────────────────────────────────────────────────
@@ -74,9 +68,7 @@ impl PyEventId {
     /// Parse a hex-encoded EventId.
     #[staticmethod]
     fn from_hex(s: &str) -> PyResult<Self> {
-        EventId::from_hex(s)
-            .map(PyEventId::from)
-            .map_err(to_py_err)
+        EventId::from_hex(s).map(PyEventId::from).map_err(to_py_err)
     }
 
     fn __repr__(&self) -> String {
@@ -299,7 +291,14 @@ impl PyReadQuery {
         limit: Option<usize>,
         event_type_filter: Option<String>,
     ) -> Self {
-        PyReadQuery { stream_id, branch, from_version, to_version, limit, event_type_filter }
+        PyReadQuery {
+            stream_id,
+            branch,
+            from_version,
+            to_version,
+            limit,
+            event_type_filter,
+        }
     }
 }
 
@@ -329,7 +328,10 @@ impl PyOpenOptions {
     #[new]
     #[pyo3(signature = (encryption = "plaintext".to_string(), on_first_open = "create_if_missing".to_string()))]
     fn new(encryption: String, on_first_open: String) -> Self {
-        PyOpenOptions { encryption, on_first_open }
+        PyOpenOptions {
+            encryption,
+            on_first_open,
+        }
     }
 }
 
@@ -388,10 +390,22 @@ impl From<StreamInfo> for PyStreamInfo {
 
 #[pymethods]
 impl PyStreamInfo {
-    #[getter] fn id(&self) -> &str { &self.inner.id }
-    #[getter] fn declared_by(&self) -> &str { &self.inner.declared_by }
-    #[getter] fn declared_at(&self) -> i64 { self.inner.declared_at }
-    #[getter] fn description(&self) -> Option<&str> { self.inner.description.as_deref() }
+    #[getter]
+    fn id(&self) -> &str {
+        &self.inner.id
+    }
+    #[getter]
+    fn declared_by(&self) -> &str {
+        &self.inner.declared_by
+    }
+    #[getter]
+    fn declared_at(&self) -> i64 {
+        self.inner.declared_at
+    }
+    #[getter]
+    fn description(&self) -> Option<&str> {
+        self.inner.description.as_deref()
+    }
     fn __repr__(&self) -> String {
         format!("StreamInfo(id={:?})", self.inner.id)
     }
@@ -413,15 +427,42 @@ impl From<BranchInfo> for PyBranchInfo {
 
 #[pymethods]
 impl PyBranchInfo {
-    #[getter] fn id(&self) -> &str { &self.inner.id }
-    #[getter] fn stream_id(&self) -> &str { &self.inner.stream_id }
-    #[getter] fn parent_id(&self) -> &str { &self.inner.parent_id }
-    #[getter] fn parent_version(&self) -> u64 { self.inner.parent_version }
-    #[getter] fn description(&self) -> Option<&str> { self.inner.description.as_deref() }
-    #[getter] fn created_at(&self) -> i64 { self.inner.created_at }
-    #[getter] fn lifecycle(&self) -> &str { &self.inner.lifecycle }
-    #[getter] fn closed_at(&self) -> Option<i64> { self.inner.closed_at }
-    #[getter] fn closed_reason(&self) -> Option<&str> { self.inner.closed_reason.as_deref() }
+    #[getter]
+    fn id(&self) -> &str {
+        &self.inner.id
+    }
+    #[getter]
+    fn stream_id(&self) -> &str {
+        &self.inner.stream_id
+    }
+    #[getter]
+    fn parent_id(&self) -> &str {
+        &self.inner.parent_id
+    }
+    #[getter]
+    fn parent_version(&self) -> u64 {
+        self.inner.parent_version
+    }
+    #[getter]
+    fn description(&self) -> Option<&str> {
+        self.inner.description.as_deref()
+    }
+    #[getter]
+    fn created_at(&self) -> i64 {
+        self.inner.created_at
+    }
+    #[getter]
+    fn lifecycle(&self) -> &str {
+        &self.inner.lifecycle
+    }
+    #[getter]
+    fn closed_at(&self) -> Option<i64> {
+        self.inner.closed_at
+    }
+    #[getter]
+    fn closed_reason(&self) -> Option<&str> {
+        self.inner.closed_reason.as_deref()
+    }
 
     fn alternatives<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
         match &self.inner.alternatives {
@@ -431,7 +472,10 @@ impl PyBranchInfo {
     }
 
     fn __repr__(&self) -> String {
-        format!("BranchInfo(id={:?}, lifecycle={:?})", self.inner.id, self.inner.lifecycle)
+        format!(
+            "BranchInfo(id={:?}, lifecycle={:?})",
+            self.inner.id, self.inner.lifecycle
+        )
     }
 }
 
@@ -451,10 +495,19 @@ impl From<BranchSegment> for PyBranchSegment {
 
 #[pymethods]
 impl PyBranchSegment {
-    #[getter] fn branch_id(&self) -> &str { &self.inner.branch_id }
-    #[getter] fn to_version(&self) -> Option<u64> { self.inner.to_version }
+    #[getter]
+    fn branch_id(&self) -> &str {
+        &self.inner.branch_id
+    }
+    #[getter]
+    fn to_version(&self) -> Option<u64> {
+        self.inner.to_version
+    }
     fn __repr__(&self) -> String {
-        format!("BranchSegment(branch_id={:?}, to_version={:?})", self.inner.branch_id, self.inner.to_version)
+        format!(
+            "BranchSegment(branch_id={:?}, to_version={:?})",
+            self.inner.branch_id, self.inner.to_version
+        )
     }
 }
 
@@ -526,15 +579,39 @@ impl From<SnapshotInfo> for PySnapshotInfo {
 
 #[pymethods]
 impl PySnapshotInfo {
-    #[getter] fn stream_id(&self) -> &str { &self.inner.stream_id }
-    #[getter] fn branch(&self) -> &str { &self.inner.branch }
-    #[getter] fn version(&self) -> u64 { self.inner.version }
-    #[getter] fn reducer_name(&self) -> &str { &self.inner.reducer_name }
-    #[getter] fn reducer_version(&self) -> u32 { self.inner.reducer_version }
-    #[getter] fn state_schema_version(&self) -> u32 { self.inner.state_schema_version }
-    #[getter] fn created_at(&self) -> i64 { self.inner.created_at }
+    #[getter]
+    fn stream_id(&self) -> &str {
+        &self.inner.stream_id
+    }
+    #[getter]
+    fn branch(&self) -> &str {
+        &self.inner.branch
+    }
+    #[getter]
+    fn version(&self) -> u64 {
+        self.inner.version
+    }
+    #[getter]
+    fn reducer_name(&self) -> &str {
+        &self.inner.reducer_name
+    }
+    #[getter]
+    fn reducer_version(&self) -> u32 {
+        self.inner.reducer_version
+    }
+    #[getter]
+    fn state_schema_version(&self) -> u32 {
+        self.inner.state_schema_version
+    }
+    #[getter]
+    fn created_at(&self) -> i64 {
+        self.inner.created_at
+    }
     fn __repr__(&self) -> String {
-        format!("SnapshotInfo(stream_id={:?}, version={})", self.inner.stream_id, self.inner.version)
+        format!(
+            "SnapshotInfo(stream_id={:?}, version={})",
+            self.inner.stream_id, self.inner.version
+        )
     }
 }
 
@@ -557,14 +634,18 @@ impl PySubscriptionMode {
     /// Synchronous delivery — fires while the write lock is held.
     #[staticmethod]
     fn synchronous() -> Self {
-        PySubscriptionMode { kind: SubModeKind::Synchronous }
+        PySubscriptionMode {
+            kind: SubModeKind::Synchronous,
+        }
     }
 
     /// Post-commit delivery via a bounded queue.
     #[staticmethod]
     #[pyo3(signature = (queue_size = 1024))]
     fn post_commit(queue_size: usize) -> Self {
-        PySubscriptionMode { kind: SubModeKind::PostCommit { queue_size } }
+        PySubscriptionMode {
+            kind: SubModeKind::PostCommit { queue_size },
+        }
     }
 
     fn __repr__(&self) -> &'static str {
@@ -621,7 +702,7 @@ impl PyAggregateQuery {
 
 // ── TruncationCursor ──────────────────────────────────────────────────────────
 
-#[pyclass(name = "TruncationCursor")]
+#[pyclass(name = "TruncationCursor", from_py_object)]
 pub struct PyTruncationCursor {
     pub inner: TruncationCursor,
 }
@@ -634,7 +715,9 @@ impl From<TruncationCursor> for PyTruncationCursor {
 
 impl Clone for PyTruncationCursor {
     fn clone(&self) -> Self {
-        PyTruncationCursor { inner: TruncationCursor::from_bytes(self.inner.as_bytes().to_vec()) }
+        PyTruncationCursor {
+            inner: TruncationCursor::from_bytes(self.inner.as_bytes().to_vec()),
+        }
     }
 }
 
@@ -658,7 +741,7 @@ impl PyTruncationCursor {
 
 // ── SamplingMode ──────────────────────────────────────────────────────────────
 
-#[pyclass(name = "SamplingMode")]
+#[pyclass(name = "SamplingMode", from_py_object)]
 #[derive(Clone)]
 pub struct PySamplingMode {
     pub inner: SamplingMode,
@@ -668,19 +751,25 @@ pub struct PySamplingMode {
 impl PySamplingMode {
     #[staticmethod]
     fn exhaustive() -> Self {
-        PySamplingMode { inner: SamplingMode::Exhaustive }
+        PySamplingMode {
+            inner: SamplingMode::Exhaustive,
+        }
     }
 
     #[staticmethod]
     #[pyo3(signature = (max_per_level = 100))]
     fn breadth_first(max_per_level: usize) -> Self {
-        PySamplingMode { inner: SamplingMode::BreadthFirst { max_per_level } }
+        PySamplingMode {
+            inner: SamplingMode::BreadthFirst { max_per_level },
+        }
     }
 
     #[staticmethod]
     #[pyo3(signature = (target_count = 100))]
     fn adaptive(target_count: usize) -> Self {
-        PySamplingMode { inner: SamplingMode::Adaptive { target_count } }
+        PySamplingMode {
+            inner: SamplingMode::Adaptive { target_count },
+        }
     }
 
     fn __repr__(&self) -> String {
@@ -715,7 +804,11 @@ impl PyReadOutcome {
                 reason: None,
                 next_cursor: None,
             },
-            ReadOutcome::Truncated { data, cursor, reason } => PyReadOutcome {
+            ReadOutcome::Truncated {
+                data,
+                cursor,
+                reason,
+            } => PyReadOutcome {
                 events: data,
                 is_truncated_flag: true,
                 reason: Some(match reason {
@@ -732,7 +825,10 @@ impl PyReadOutcome {
 impl PyReadOutcome {
     #[getter]
     fn results(&self) -> Vec<PyStoredEvent> {
-        self.events.iter().map(|e| PyStoredEvent::from(e.clone())).collect()
+        self.events
+            .iter()
+            .map(|e| PyStoredEvent::from(e.clone()))
+            .collect()
     }
 
     #[getter]

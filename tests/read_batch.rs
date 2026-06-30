@@ -1,9 +1,9 @@
-use fossic::{Append, EventId, OpenOptions, ReadQuery, Store};
+use fossic::{Append, EventId, OpenOptions, Store};
 
 fn open_tmp() -> (Store, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join("test.db"), OpenOptions::default())
-        .expect("open store");
+    let store =
+        Store::open(dir.path().join("test.db"), OpenOptions::default()).expect("open store");
     (store, dir)
 }
 
@@ -133,8 +133,7 @@ fn read_batch_payload_matches_appended() {
         .unwrap();
     let result = store.read_batch(&[id]).unwrap();
     assert_eq!(result.len(), 1);
-    let payload: serde_json::Value =
-        rmp_serde::from_slice(&result[0].payload).unwrap();
+    let payload: serde_json::Value = rmp_serde::from_slice(&result[0].payload).unwrap();
     assert_eq!(payload["x"], 42);
     assert_eq!(payload["label"], "hello");
 }

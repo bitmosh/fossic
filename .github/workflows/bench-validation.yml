@@ -23,7 +23,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: fossic -> fossic/target
+          workspaces: ". -> target"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -32,7 +32,6 @@ jobs:
         run: pip install --require-hashes -r benchmarks/requirements-bench.txt 2>/dev/null || pip install psutil
 
       - name: Build fossic (release mode for accurate timings)
-        working-directory: fossic
         run: cargo build --release
 
       - name: Run payload sweep
@@ -41,7 +40,7 @@ jobs:
             --output benchmarks/results/bench_run.json \
             --scenario-c-only
         env:
-          FOSSIC_LIB_PATH: fossic/target/release/libfossic.so
+          FOSSIC_LIB_PATH: target/release/libfossic.so
 
       - name: Check p99 regression
         id: regression-check

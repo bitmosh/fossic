@@ -1,7 +1,7 @@
 use crossbeam_channel as cc;
 use fossic::{
-    Aggregate, AggregateQuery, CausationIter, CorrelationIter, Error, PayloadTransform,
-    RangeIter, Store, SubscribeQuery, SubscriptionMode, Upcaster, WalkDirection,
+    Aggregate, AggregateQuery, CausationIter, CorrelationIter, Error, PayloadTransform, RangeIter,
+    Store, SubscribeQuery, SubscriptionMode, Upcaster, WalkDirection,
 };
 use pyo3::prelude::*;
 use pyo3::types::PyAny;
@@ -118,17 +118,15 @@ impl fossic::DynReducer for PyDynReducer {
     }
     fn initial_state_bytes(&self) -> Result<Vec<u8>, fossic::Error> {
         Python::attach(|py| {
-            let py_state = self
-                .py_obj
-                .call_method0(py, "initial_state")
-                .map_err(|e| fossic::Error::ReducerError {
-                    message: format!("initial_state() raised: {e}"),
-                })?;
-            let json_v = py_to_json(py, py_state.bind(py)).map_err(|e| {
+            let py_state = self.py_obj.call_method0(py, "initial_state").map_err(|e| {
                 fossic::Error::ReducerError {
-                    message: format!("initial_state result not JSON-serialisable: {e}"),
+                    message: format!("initial_state() raised: {e}"),
                 }
             })?;
+            let json_v =
+                py_to_json(py, py_state.bind(py)).map_err(|e| fossic::Error::ReducerError {
+                    message: format!("initial_state result not JSON-serialisable: {e}"),
+                })?;
             rmp_serde::to_vec_named(&json_v).map_err(fossic::Error::MsgpackEncode)
         })
     }
@@ -140,19 +138,17 @@ impl fossic::DynReducer for PyDynReducer {
         Python::attach(|py| {
             let state_json: serde_json::Value =
                 rmp_serde::from_slice(state_bytes).map_err(fossic::Error::MsgpackDecode)?;
-            let py_state = json_to_py(py, &state_json).map_err(|e| {
-                fossic::Error::ReducerError {
+            let py_state =
+                json_to_py(py, &state_json).map_err(|e| fossic::Error::ReducerError {
                     message: format!("state deserialise to Python: {e}"),
-                }
-            })?;
+                })?;
 
             let event_json: serde_json::Value =
                 rmp_serde::from_slice(event_payload).map_err(fossic::Error::MsgpackDecode)?;
-            let py_event = json_to_py(py, &event_json).map_err(|e| {
-                fossic::Error::ReducerError {
+            let py_event =
+                json_to_py(py, &event_json).map_err(|e| fossic::Error::ReducerError {
                     message: format!("event_payload deserialise to Python: {e}"),
-                }
-            })?;
+                })?;
 
             let new_state = self
                 .py_obj
@@ -160,11 +156,10 @@ impl fossic::DynReducer for PyDynReducer {
                 .map_err(|e| fossic::Error::ReducerError {
                     message: format!("apply() raised: {e}"),
                 })?;
-            let new_json = py_to_json(py, new_state.bind(py)).map_err(|e| {
-                fossic::Error::ReducerError {
+            let new_json =
+                py_to_json(py, new_state.bind(py)).map_err(|e| fossic::Error::ReducerError {
                     message: format!("apply result not JSON-serialisable: {e}"),
-                }
-            })?;
+                })?;
             rmp_serde::to_vec_named(&new_json).map_err(fossic::Error::MsgpackEncode)
         })
     }
@@ -235,10 +230,17 @@ impl PyStore {
 
     fn append(&self, py: Python<'_>, a: PyRef<PyAppend>) -> PyResult<PyEventId> {
         let rust_a = a.to_rust(py)?;
-        self.inner.append(rust_a).map(PyEventId::from).map_err(to_py_err)
+        self.inner
+            .append(rust_a)
+            .map(PyEventId::from)
+            .map_err(to_py_err)
     }
 
-    fn append_batch(&self, py: Python<'_>, appends: Vec<PyRef<PyAppend>>) -> PyResult<Vec<PyEventId>> {
+    fn append_batch(
+        &self,
+        py: Python<'_>,
+        appends: Vec<PyRef<PyAppend>>,
+    ) -> PyResult<Vec<PyEventId>> {
         let rust: Vec<fossic::Append> = appends
             .iter()
             .map(|a| a.to_rust(py))
@@ -277,8 +279,15 @@ impl PyStore {
             SubModeKind::PostCommit { queue_size } => SubscriptionMode::PostCommit { queue_size },
         };
 
-        let q = SubscribeQuery { stream_pattern, branch, include_system };
-        let handle = self.inner.subscribe(q, rust_mode, handler).map_err(to_py_err)?;
+        let q = SubscribeQuery {
+            stream_pattern,
+            branch,
+            include_system,
+        };
+        let handle = self
+            .inner
+            .subscribe(q, rust_mode, handler)
+            .map_err(to_py_err)?;
 
         Ok(PyRawSubscriptionHandle::new(rx, handle))
     }
@@ -353,9 +362,15 @@ impl PyStore {
         max_bytes: Option<usize>,
         cursor: Option<PyRef<PyTruncationCursor>>,
     ) -> PyResult<PyReadOutcome> {
-        let rust_cursor = cursor.map(|c| fossic::TruncationCursor::from_bytes(c.inner.as_bytes().to_vec()));
+        let rust_cursor =
+            cursor.map(|c| fossic::TruncationCursor::from_bytes(c.inner.as_bytes().to_vec()));
         self.inner
-            .read_range_bounded(fossic::ReadQuery::from(&*query), max_results, max_bytes, rust_cursor)
+            .read_range_bounded(
+                fossic::ReadQuery::from(&*query),
+                max_results,
+                max_bytes,
+                rust_cursor,
+            )
             .map(PyReadOutcome::from_outcome)
             .map_err(to_py_err)
     }
@@ -368,7 +383,8 @@ impl PyStore {
         max_bytes: Option<usize>,
         cursor: Option<PyRef<PyTruncationCursor>>,
     ) -> PyResult<PyReadOutcome> {
-        let rust_cursor = cursor.map(|c| fossic::TruncationCursor::from_bytes(c.inner.as_bytes().to_vec()));
+        let rust_cursor =
+            cursor.map(|c| fossic::TruncationCursor::from_bytes(c.inner.as_bytes().to_vec()));
         self.inner
             .read_by_correlation_bounded(correlation_id.inner, max_results, max_bytes, rust_cursor)
             .map(PyReadOutcome::from_outcome)
@@ -390,9 +406,18 @@ impl PyStore {
         let samp = sampling
             .map(|s| s.inner.clone())
             .unwrap_or(fossic::SamplingMode::Exhaustive);
-        let rust_cursor = cursor.map(|c| fossic::TruncationCursor::from_bytes(c.inner.as_bytes().to_vec()));
+        let rust_cursor =
+            cursor.map(|c| fossic::TruncationCursor::from_bytes(c.inner.as_bytes().to_vec()));
         self.inner
-            .walk_causation_bounded(start.inner, dir, max_depth, samp, max_results, max_bytes, rust_cursor)
+            .walk_causation_bounded(
+                start.inner,
+                dir,
+                max_depth,
+                samp,
+                max_results,
+                max_bytes,
+                rust_cursor,
+            )
             .map(PyReadOutcome::from_outcome)
             .map_err(to_py_err)
     }
@@ -400,11 +425,15 @@ impl PyStore {
     // ── Streaming iterators ───────────────────────────────────────────────────
 
     fn read_range_iter(&self, query: PyRef<PyReadQuery>) -> PyRangeIter {
-        PyRangeIter { inner: self.inner.read_range_iter(fossic::ReadQuery::from(&*query)) }
+        PyRangeIter {
+            inner: self.inner.read_range_iter(fossic::ReadQuery::from(&*query)),
+        }
     }
 
     fn read_by_correlation_iter(&self, correlation_id: PyRef<PyEventId>) -> PyCorrelationIter {
-        PyCorrelationIter { inner: self.inner.read_by_correlation_iter(correlation_id.inner) }
+        PyCorrelationIter {
+            inner: self.inner.read_by_correlation_iter(correlation_id.inner),
+        }
     }
 
     #[pyo3(signature = (start, direction = "forward".to_string(), max_depth = 100, sampling = None))]
@@ -419,13 +448,21 @@ impl PyStore {
         let samp = sampling
             .map(|s| s.inner.clone())
             .unwrap_or(fossic::SamplingMode::Exhaustive);
-        Ok(PyCausationIter { inner: self.inner.walk_causation_iter(start.inner, dir, max_depth, samp) })
+        Ok(PyCausationIter {
+            inner: self
+                .inner
+                .walk_causation_iter(start.inner, dir, max_depth, samp),
+        })
     }
 
     /// Run an aggregate query and return all matching events.
     ///
     /// The Python caller folds the events into the desired summary value.
-    fn aggregate(&self, py: Python<'_>, query: PyRef<PyAggregateQuery>) -> PyResult<Vec<PyStoredEvent>> {
+    fn aggregate(
+        &self,
+        py: Python<'_>,
+        query: PyRef<PyAggregateQuery>,
+    ) -> PyResult<Vec<PyStoredEvent>> {
         let indexed_tags_filter = match &query.indexed_tags_filter {
             None => None,
             Some(obj) => Some(py_to_json(py, obj.bind(py))?),
@@ -457,7 +494,12 @@ impl PyStore {
         callable: Py<PyAny>,
     ) -> PyResult<()> {
         self.inner
-            .register_upcaster(event_type, from_version, to_version, PyUpcaster { callable })
+            .register_upcaster(
+                event_type,
+                from_version,
+                to_version,
+                PyUpcaster { callable },
+            )
             .map_err(to_py_err)
     }
 
@@ -494,30 +536,31 @@ impl PyStore {
     /// Unlike the legacy pure-Python approach, reducers registered here participate
     /// in snapshot caching — ``take_snapshot`` stores state to SQLite and future
     /// ``read_state`` calls start from the snapshot rather than replaying all events.
-    fn register_reducer(
-        &self,
-        py: Python<'_>,
-        pattern: &str,
-        reducer: Py<PyAny>,
-    ) -> PyResult<()> {
+    fn register_reducer(&self, py: Python<'_>, pattern: &str, reducer: Py<PyAny>) -> PyResult<()> {
         let name: String = reducer
             .getattr(py, "name")
             .and_then(|v| v.extract::<String>(py))
-            .map_err(|_| pyo3::exceptions::PyAttributeError::new_err(
-                "reducer must have a `name: str` attribute",
-            ))?;
+            .map_err(|_| {
+                pyo3::exceptions::PyAttributeError::new_err(
+                    "reducer must have a `name: str` attribute",
+                )
+            })?;
         let version: u32 = reducer
             .getattr(py, "version")
             .and_then(|v| v.extract::<u32>(py))
-            .map_err(|_| pyo3::exceptions::PyAttributeError::new_err(
-                "reducer must have a `version: int` attribute",
-            ))?;
+            .map_err(|_| {
+                pyo3::exceptions::PyAttributeError::new_err(
+                    "reducer must have a `version: int` attribute",
+                )
+            })?;
         let state_schema_version: u32 = reducer
             .getattr(py, "state_schema_version")
             .and_then(|v| v.extract::<u32>(py))
-            .map_err(|_| pyo3::exceptions::PyAttributeError::new_err(
-                "reducer must have a `state_schema_version: int` attribute",
-            ))?;
+            .map_err(|_| {
+                pyo3::exceptions::PyAttributeError::new_err(
+                    "reducer must have a `state_schema_version: int` attribute",
+                )
+            })?;
 
         let dyn_reducer = Box::new(PyDynReducer {
             name,
@@ -535,11 +578,13 @@ impl PyStore {
     /// Uses the most recent snapshot as the starting point (if one exists), so not
     /// all events need to be replayed from the beginning.
     fn read_state(&self, stream_id: &str, branch: &str) -> PyResult<Py<PyAny>> {
-        let bytes = self.inner.read_state_bytes(stream_id, branch).map_err(to_py_err)?;
+        let bytes = self
+            .inner
+            .read_state_bytes(stream_id, branch)
+            .map_err(to_py_err)?;
         Python::attach(|py| {
-            let json_v: serde_json::Value =
-                rmp_serde::from_slice(&bytes)
-                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            let json_v: serde_json::Value = rmp_serde::from_slice(&bytes)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
             json_to_py(py, &json_v).map(|b| b.unbind())
         })
     }
@@ -556,9 +601,8 @@ impl PyStore {
             .read_state_bytes_at_version(stream_id, branch, version)
             .map_err(to_py_err)?;
         Python::attach(|py| {
-            let json_v: serde_json::Value =
-                rmp_serde::from_slice(&bytes)
-                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+            let json_v: serde_json::Value = rmp_serde::from_slice(&bytes)
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
             json_to_py(py, &json_v).map(|b| b.unbind())
         })
     }
@@ -578,7 +622,9 @@ impl PyStore {
     }
 
     fn shred_stream(&self, stream_id: &str, reason: &str) -> PyResult<()> {
-        self.inner.shred_stream(stream_id, reason).map_err(to_py_err)
+        self.inner
+            .shred_stream(stream_id, reason)
+            .map_err(to_py_err)
     }
 
     // ── Cursors ───────────────────────────────────────────────────────────────
@@ -589,7 +635,9 @@ impl PyStore {
         stream_id: &str,
         branch: &str,
     ) -> PyResult<Option<u64>> {
-        self.inner.get_cursor(consumer_id, stream_id, branch).map_err(to_py_err)
+        self.inner
+            .get_cursor(consumer_id, stream_id, branch)
+            .map_err(to_py_err)
     }
 
     fn set_cursor(
@@ -599,7 +647,9 @@ impl PyStore {
         branch: &str,
         version: u64,
     ) -> PyResult<()> {
-        self.inner.set_cursor(consumer_id, stream_id, branch, version).map_err(to_py_err)
+        self.inner
+            .set_cursor(consumer_id, stream_id, branch, version)
+            .map_err(to_py_err)
     }
 
     // ── Branches ─────────────────────────────────────────────────────────────
@@ -615,7 +665,9 @@ impl PyStore {
         branch_id: &str,
         reason: Option<&str>,
     ) -> PyResult<()> {
-        self.inner.promote_branch(stream_id, branch_id, reason).map_err(to_py_err)
+        self.inner
+            .promote_branch(stream_id, branch_id, reason)
+            .map_err(to_py_err)
     }
 
     fn mark_branch_dead_end(
@@ -624,7 +676,9 @@ impl PyStore {
         branch_id: &str,
         reason: Option<&str>,
     ) -> PyResult<()> {
-        self.inner.mark_branch_dead_end(stream_id, branch_id, reason).map_err(to_py_err)
+        self.inner
+            .mark_branch_dead_end(stream_id, branch_id, reason)
+            .map_err(to_py_err)
     }
 
     fn list_branches(&self, stream_id: &str) -> PyResult<Vec<PyBranchInfo>> {
@@ -634,11 +688,7 @@ impl PyStore {
             .map_err(to_py_err)
     }
 
-    fn resolve_chain(
-        &self,
-        stream_id: &str,
-        branch_id: &str,
-    ) -> PyResult<Vec<PyBranchSegment>> {
+    fn resolve_chain(&self, stream_id: &str, branch_id: &str) -> PyResult<Vec<PyBranchSegment>> {
         self.inner
             .resolve_chain(stream_id, branch_id)
             .map(|v| v.into_iter().map(PyBranchSegment::from).collect())

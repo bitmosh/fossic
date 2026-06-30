@@ -16,8 +16,7 @@ impl DynReducer for CounterDynReducer {
         1
     }
     fn initial_state_bytes(&self) -> Result<Vec<u8>, Error> {
-        rmp_serde::to_vec_named(&serde_json::json!({"count": 0}))
-            .map_err(Error::MsgpackEncode)
+        rmp_serde::to_vec_named(&serde_json::json!({"count": 0})).map_err(Error::MsgpackEncode)
     }
     fn apply_bytes(&self, state_bytes: &[u8], _event_payload: &[u8]) -> Result<Vec<u8>, Error> {
         let mut state: serde_json::Value =
@@ -134,7 +133,9 @@ fn dyn_and_static_reducers_coexist() {
     // Use single-star patterns to avoid the conservative ** overlap check.
     let (store, _dir) = open_tmp();
     store.register_reducer("static/*", StaticCounter).unwrap();
-    store.register_dyn_reducer("dyn/*", Box::new(CounterDynReducer)).unwrap();
+    store
+        .register_dyn_reducer("dyn/*", Box::new(CounterDynReducer))
+        .unwrap();
 
     store.declare_stream("static/events", "test", None).unwrap();
     store.declare_stream("dyn/events", "test", None).unwrap();

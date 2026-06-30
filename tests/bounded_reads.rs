@@ -321,7 +321,7 @@ fn correlation_bounded_uses_store_default_max_results() {
 #[test]
 fn correlation_bounded_wrong_cursor_type_returns_error() {
     let store = temp_store();
-    append_n(&store, 3);          // populates stream "s" for range_q()
+    append_n(&store, 3); // populates stream "s" for range_q()
     let root = append_correlated(&store, 3);
     // Build a Range cursor and pass it to a correlation query — should error.
     let range_cursor = match store

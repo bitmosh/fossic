@@ -103,5 +103,7 @@ pub fn compute_event_id<'py>(
         &json_value,
     )
     .map_err(|e| PyValueError::new_err(format!("CCE error: {e}")))?;
-    Ok(PyEventId { inner: fossic::EventId::from_bytes(bytes) })
+    Ok(PyEventId {
+        inner: fossic::EventId::from_bytes(bytes),
+    })
 }

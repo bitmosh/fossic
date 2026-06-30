@@ -1,8 +1,4 @@
-use crate::{
-    cce::derive_event_id,
-    schema::now_us,
-    types::EventId,
-};
+use crate::{cce::derive_event_id, schema::now_us, types::EventId};
 use rusqlite::{Connection, TransactionBehavior};
 use std::path::Path;
 
@@ -24,9 +20,8 @@ impl SystemStreamWriter {
     pub fn new(db_path: &Path) -> Option<Self> {
         match Connection::open(db_path) {
             Ok(conn) => {
-                let _ = conn.execute_batch(
-                    "PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 30000;",
-                );
+                let _ =
+                    conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 30000;");
                 Some(SystemStreamWriter { conn })
             }
             Err(e) => {
@@ -59,7 +54,10 @@ impl SystemStreamWriter {
 
         let indexed_tags_json = indexed_tags.map(|t| t.to_string());
 
-        let tx = match self.conn.transaction_with_behavior(TransactionBehavior::Immediate) {
+        let tx = match self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+        {
             Ok(t) => t,
             Err(_) => return,
         };

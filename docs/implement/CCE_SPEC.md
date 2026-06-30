@@ -131,7 +131,7 @@ Every CCE implementation MUST pass the test vector file `cce-test-vectors.json` 
 - Map key sorting with mixed-type keys
 - Nested structures (map-of-arrays, array-of-maps)
 - Boundary cases (empty string, empty map, empty array, max-length string)
-- The full event-id derivation chain with example payloads from rhyzome and bons.ai event types
+- The full event-id derivation chain with example payloads from Cerebra and Policy Scout event types
 - A "trip test" set: for each vector, the spec implementation's output is recorded as the expected bytes.
 
 The reference Rust implementation runs this test vector file as part of CI. Python and TypeScript implementations include their own copies of the same vectors and run them as part of their package CI.

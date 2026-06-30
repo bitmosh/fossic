@@ -1,9 +1,11 @@
-use fossic::{Error, EventId, OpenOptions, SimilarityQuery, SimilaritySearchProvider, Store, TaskPriority};
+use crate::errors::to_py_err;
+use fossic::{
+    Error, EventId, OpenOptions, SimilarityQuery, SimilaritySearchProvider, Store, TaskPriority,
+};
 use fossic_similarity_hnsw::{DistanceMetric, HnswConfig, HnswProvider};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes, PyDict};
 use std::sync::Arc;
-use crate::errors::to_py_err;
 
 // ── PyHnswProvider ────────────────────────────────────────────────────────────
 
@@ -76,9 +78,7 @@ impl PyHnswProvider {
             distance: dm,
             stream_filter_fudge_factor,
         };
-        let provider = Arc::new(
-            HnswProvider::new(db_path, config).map_err(hnsw_err)?,
-        );
+        let provider = Arc::new(HnswProvider::new(db_path, config).map_err(hnsw_err)?);
         let store = Store::open(
             db_path,
             OpenOptions {
@@ -129,11 +129,7 @@ impl PyHnswProvider {
     /// Returns a list of `{"event_id": bytes, "score": float}` dicts,
     /// ordered by distance (closest first for Euclidean/InnerProduct; for
     /// Cosine, lower score = more similar per hnsw_rs convention).
-    fn query<'py>(
-        &self,
-        py: Python<'py>,
-        query: &Bound<'_, PyDict>,
-    ) -> PyResult<Vec<Py<PyAny>>> {
+    fn query<'py>(&self, py: Python<'py>, query: &Bound<'_, PyDict>) -> PyResult<Vec<Py<PyAny>>> {
         let embedding: Vec<f32> = query
             .get_item("embedding")?
             .ok_or_else(|| pyo3::exceptions::PyKeyError::new_err("missing key 'embedding'"))?
@@ -148,7 +144,11 @@ impl PyHnswProvider {
             Some(v) => Some(v.extract()?),
         };
 
-        let q = SimilarityQuery { embedding, k, stream_pattern };
+        let q = SimilarityQuery {
+            embedding,
+            k,
+            stream_pattern,
+        };
         let hits = self.provider.query(q).map_err(to_py_err)?;
 
         hits.into_iter()
@@ -218,14 +218,12 @@ impl PyHnswProvider {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn bytes_to_event_id(b: &[u8]) -> PyResult<EventId> {
-    b.try_into()
-        .map(EventId::from_bytes)
-        .map_err(|_| {
-            pyo3::exceptions::PyValueError::new_err(format!(
-                "event_id must be 32 bytes, got {}",
-                b.len()
-            ))
-        })
+    b.try_into().map(EventId::from_bytes).map_err(|_| {
+        pyo3::exceptions::PyValueError::new_err(format!(
+            "event_id must be 32 bytes, got {}",
+            b.len()
+        ))
+    })
 }
 
 fn hnsw_err(e: fossic_similarity_hnsw::HnswError) -> PyErr {

@@ -214,7 +214,10 @@ fn mark_dead_end_from_ephemeral() {
 
     let branches = store.list_branches("test/s").unwrap();
     assert_eq!(branches[0].lifecycle, "dead_end");
-    assert_eq!(branches[0].closed_reason.as_deref(), Some("similarity > 0.95"));
+    assert_eq!(
+        branches[0].closed_reason.as_deref(),
+        Some("similarity > 0.95")
+    );
 }
 
 #[test]

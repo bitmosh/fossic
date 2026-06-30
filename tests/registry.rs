@@ -42,7 +42,9 @@ fn emit_project_registered_writes_system_event() {
 #[test]
 fn emit_relay_heartbeat_writes_system_event() {
     let (store, _dir) = open_tmp();
-    store.emit_relay_heartbeat("my-project", 42, 0, 1_000_000).unwrap();
+    store
+        .emit_relay_heartbeat("my-project", 42, 0, 1_000_000)
+        .unwrap();
 
     let events = store
         .read_range(ReadQuery {
@@ -81,7 +83,10 @@ fn emit_project_registered_indexed_tag_source_store() {
         .unwrap();
 
     assert_eq!(events.len(), 1);
-    let tags = events[0].indexed_tags.as_ref().expect("indexed_tags must be Some");
+    let tags = events[0]
+        .indexed_tags
+        .as_ref()
+        .expect("indexed_tags must be Some");
     assert_eq!(
         tags.get("source_store").and_then(|v| v.as_str()),
         Some("cerebra"),

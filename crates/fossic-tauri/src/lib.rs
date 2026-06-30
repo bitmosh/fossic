@@ -104,7 +104,14 @@ impl SubscriptionMap {
         stream_pattern: String,
         branch: String,
     ) {
-        self.0.lock().insert(id, SubscriptionEntry { handle, stream_pattern, branch });
+        self.0.lock().insert(
+            id,
+            SubscriptionEntry {
+                handle,
+                stream_pattern,
+                branch,
+            },
+        );
     }
 
     pub fn remove(&self, id: &str) {
@@ -113,14 +120,18 @@ impl SubscriptionMap {
 
     /// Snapshot all active subscriptions for `fossic_list_subscribers`.
     pub fn snapshot_all(&self) -> Vec<SubscriberSnapshot> {
-        self.0.lock().iter().map(|(id, entry)| SubscriberSnapshot {
-            subscription_id: id.clone(),
-            stream_pattern: entry.stream_pattern.clone(),
-            branch: entry.branch.clone(),
-            degraded: entry.handle.is_degraded(),
-            queue_depth: entry.handle.queue_depth(),
-            queue_capacity: entry.handle.queue_capacity(),
-        }).collect()
+        self.0
+            .lock()
+            .iter()
+            .map(|(id, entry)| SubscriberSnapshot {
+                subscription_id: id.clone(),
+                stream_pattern: entry.stream_pattern.clone(),
+                branch: entry.branch.clone(),
+                degraded: entry.handle.is_degraded(),
+                queue_depth: entry.handle.queue_depth(),
+                queue_capacity: entry.handle.queue_capacity(),
+            })
+            .collect()
     }
 
     /// Snapshot a single subscription by UUID for `fossic_subscription_status`.

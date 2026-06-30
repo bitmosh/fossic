@@ -33,8 +33,6 @@ blast-radius file under "Living report updates").
 | lumaweave | TypeScript | `fossic-node` + Tauri IPC | subscriptions (Graph B), event read, Tauri commands |
 | bo (discord-bot) | Python | `fossic-py` | `append`, `read_range` (agent trace logging) |
 | ai-stack | Docker/Python | `fossic-py` | indirect (through cerebra) |
-| rhyzome | Python | `fossic-py` | branches, `create_branch`, `promote_branch` (benched) |
-| bons.ai | Python | `fossic-py` | `indexed_tags`, aggregation, `SimilaritySearchProvider` (benched) |
 
 ---
 

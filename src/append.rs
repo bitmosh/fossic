@@ -103,8 +103,7 @@ pub(crate) fn append_impl(
         event_id,
         version: next_version as u64,
         timestamp_us,
-        payload_bytes: rmp_serde::to_vec(&payload)
-            .unwrap_or_default(),
+        payload_bytes: rmp_serde::to_vec(&payload).unwrap_or_default(),
         is_new: rows_changed > 0,
     })
 }
@@ -236,8 +235,12 @@ pub(crate) fn append_batch_impl(
             }
         }
         let causation_bytes = a.causation_id.as_ref().map(|id| *id.as_bytes());
-        let id_bytes =
-            derive_event_id(&a.event_type, a.type_version, causation_bytes.as_ref(), payload_val)?;
+        let id_bytes = derive_event_id(
+            &a.event_type,
+            a.type_version,
+            causation_bytes.as_ref(),
+            payload_val,
+        )?;
         let payload_for_outcome = rmp_serde::to_vec(payload_val).unwrap_or_default();
         encoded.push(Encoded {
             event_id: EventId::from_bytes(id_bytes),

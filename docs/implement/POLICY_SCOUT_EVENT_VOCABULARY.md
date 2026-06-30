@@ -16,7 +16,7 @@ human-in-the-loop approvals, sandbox operations, and audit integrity checks — 
 of which are cognitive execution traces.
 
 The audience for this vocabulary differs from `AGENT_TRACE_VOCABULARY.md`:
-- **Agent-trace consumers** (Cerebra, rhyzome, bons.ai) care about reasoning loops,
+- **Agent-trace consumers** (Cerebra, ai-stack) care about reasoning loops,
   LLM calls, tool calls, and cycle metadata.
 - **Policy-scout consumers** (Lattica governance tiles, audit dashboards, incident
   response tooling) care about command decisions, approval state, and sandbox results.

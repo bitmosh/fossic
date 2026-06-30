@@ -1,8 +1,4 @@
-use crate::{
-    error::Error,
-    schema::now_us,
-    types::StreamInfo,
-};
+use crate::{error::Error, schema::now_us, types::StreamInfo};
 use rusqlite::Connection;
 
 const MAX_STREAM_ID_LEN: usize = 256;

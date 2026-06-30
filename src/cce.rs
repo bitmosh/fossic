@@ -41,7 +41,9 @@ pub fn encode_value(out: &mut Vec<u8>, value: &serde_json::Value) -> Result<(), 
             } else if let Some(u) = n.as_u64() {
                 return Err(CceError::U64Overflow(u));
             } else {
-                let f = n.as_f64().expect("serde_json Number must be i64, u64, or f64");
+                let f = n
+                    .as_f64()
+                    .expect("serde_json Number must be i64, u64, or f64");
                 encode_f64(out, f);
             }
         }
@@ -264,7 +266,11 @@ mod tests {
         );
         // Any NaN bit pattern should map to the same canonical quiet NaN.
         let signaling = f64::from_bits(0x7FF0_0000_0000_0001u64);
-        assert_eq!(canonicalize_f64(signaling).to_bits(), canonical_bits, "signaling NaN");
+        assert_eq!(
+            canonicalize_f64(signaling).to_bits(),
+            canonical_bits,
+            "signaling NaN"
+        );
     }
 
     #[test]
@@ -329,11 +335,14 @@ mod tests {
 
     #[test]
     fn event_id_differs_with_causation() {
-        let no_cause =
-            derive_event_id("TestEvent", 1, None, &serde_json::json!({"x": 1})).unwrap();
-        let with_cause =
-            derive_event_id("TestEvent", 1, Some(&[0xABu8; 32]), &serde_json::json!({"x": 1}))
-                .unwrap();
+        let no_cause = derive_event_id("TestEvent", 1, None, &serde_json::json!({"x": 1})).unwrap();
+        let with_cause = derive_event_id(
+            "TestEvent",
+            1,
+            Some(&[0xABu8; 32]),
+            &serde_json::json!({"x": 1}),
+        )
+        .unwrap();
         assert_ne!(no_cause, with_cause);
     }
 

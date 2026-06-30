@@ -4,8 +4,8 @@ const PURGE_CONFIRM: &str = "I understand this breaks replay-from-zero";
 
 fn open_tmp() -> (Store, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join("test.db"), OpenOptions::default())
-        .expect("open store");
+    let store =
+        Store::open(dir.path().join("test.db"), OpenOptions::default()).expect("open store");
     (store, dir)
 }
 
@@ -39,7 +39,10 @@ fn purge_wrong_confirm_returns_error() {
         "wrong confirm must return PurgeConfirmationError"
     );
     // Original event must still exist.
-    assert!(store.read_one(id).unwrap().is_some(), "original event must survive wrong confirm");
+    assert!(
+        store.read_one(id).unwrap().is_some(),
+        "original event must survive wrong confirm"
+    );
 }
 
 #[test]
@@ -61,13 +64,21 @@ fn purge_writes_audit_event_to_system_stream() {
     let id = append_one(&store, "test/stream");
 
     store
-        .purge_event(id, PURGE_CONFIRM, "audit trail test", "security@example.com")
+        .purge_event(
+            id,
+            PURGE_CONFIRM,
+            "audit trail test",
+            "security@example.com",
+        )
         .unwrap();
 
     let system_events = store
         .read_range(ReadQuery::stream("_fossic/system"))
         .unwrap();
-    assert!(!system_events.is_empty(), "Purged audit event must be written to _fossic/system");
+    assert!(
+        !system_events.is_empty(),
+        "Purged audit event must be written to _fossic/system"
+    );
 
     let purged_event = &system_events[0];
     assert_eq!(purged_event.event_type, "Purged");
@@ -94,7 +105,9 @@ fn purge_audit_event_written_before_deletion_atomically() {
         .unwrap();
 
     // Audit event exists.
-    let system = store.read_range(ReadQuery::stream("_fossic/system")).unwrap();
+    let system = store
+        .read_range(ReadQuery::stream("_fossic/system"))
+        .unwrap();
     assert_eq!(system.len(), 1, "exactly one Purged event must exist");
 
     // Original is gone.
@@ -114,8 +127,13 @@ fn purge_nonexistent_event_returns_error() {
 
     // No audit event should have been written.
     // _fossic/system may not even be declared yet — that's fine.
-    let system = store.read_range(ReadQuery::stream("_fossic/system")).unwrap_or_default();
-    assert!(system.is_empty(), "no Purged event written on EventNotFound path");
+    let system = store
+        .read_range(ReadQuery::stream("_fossic/system"))
+        .unwrap_or_default();
+    assert!(
+        system.is_empty(),
+        "no Purged event written on EventNotFound path"
+    );
 }
 
 #[test]
@@ -147,7 +165,9 @@ fn multiple_purges_each_write_audit_event() {
         .purge_event(id2, PURGE_CONFIRM, "purge 2", "ops@example.com")
         .unwrap();
 
-    let system = store.read_range(ReadQuery::stream("_fossic/system")).unwrap();
+    let system = store
+        .read_range(ReadQuery::stream("_fossic/system"))
+        .unwrap();
     assert_eq!(system.len(), 2, "two purges must produce two audit events");
 }
 

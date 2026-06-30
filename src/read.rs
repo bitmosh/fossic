@@ -1,6 +1,9 @@
 use crate::{
     error::Error,
-    types::{CursorInner, EventId, ReadOutcome, ReadQuery, StoredEvent, TruncationCursor, TruncationReason},
+    types::{
+        CursorInner, EventId, ReadOutcome, ReadQuery, StoredEvent, TruncationCursor,
+        TruncationReason,
+    },
 };
 use rusqlite::Connection;
 
@@ -11,11 +14,7 @@ pub(crate) fn row_to_event(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredEv
         .map(serde_json::from_str)
         .transpose()
         .map_err(|e| {
-            rusqlite::Error::FromSqlConversionFailure(
-                11,
-                rusqlite::types::Type::Text,
-                Box::new(e),
-            )
+            rusqlite::Error::FromSqlConversionFailure(11, rusqlite::types::Type::Text, Box::new(e))
         })?;
 
     Ok(StoredEvent {
@@ -45,10 +44,7 @@ pub(crate) const PREFIXED_SELECT_COLS: &str =
      events.causation_id, events.correlation_id, events.event_type, events.type_version, \
      events.payload, events.external_id, events.indexed_tags";
 
-pub(crate) fn read_range_impl(
-    conn: &Connection,
-    q: ReadQuery,
-) -> Result<Vec<StoredEvent>, Error> {
+pub(crate) fn read_range_impl(conn: &Connection, q: ReadQuery) -> Result<Vec<StoredEvent>, Error> {
     let from = q.from_version.unwrap_or(0) as i64;
     let to = q.to_version.map(|v| v as i64).unwrap_or(i64::MAX);
     let limit = q.limit.map(|l| l as i64).unwrap_or(i64::MAX);
@@ -73,10 +69,7 @@ pub(crate) fn read_range_impl(
     Ok(events)
 }
 
-pub(crate) fn read_one_impl(
-    conn: &Connection,
-    id: EventId,
-) -> Result<Option<StoredEvent>, Error> {
+pub(crate) fn read_one_impl(conn: &Connection, id: EventId) -> Result<Option<StoredEvent>, Error> {
     let sql = format!("SELECT {SELECT_COLS} FROM events WHERE id = ?1");
     match conn.query_row(&sql, rusqlite::params![id], row_to_event) {
         Ok(event) => Ok(Some(event)),
@@ -128,7 +121,11 @@ pub(crate) fn read_by_external_id_impl(
     let sql = format!(
         "SELECT {SELECT_COLS} FROM events WHERE stream_id = ?1 AND external_id = ?2 LIMIT 1"
     );
-    match conn.query_row(&sql, rusqlite::params![stream_id, external_id], row_to_event) {
+    match conn.query_row(
+        &sql,
+        rusqlite::params![stream_id, external_id],
+        row_to_event,
+    ) {
         Ok(event) => Ok(Some(event)),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(e) => Err(Error::Sqlite(e)),
@@ -170,9 +167,9 @@ pub(crate) fn read_range_bounded_impl(
         let event = row?;
         let event_bytes = event.payload.len();
 
-        let exceed_count = max_results.map_or(false, |n| events.len() >= n);
+        let exceed_count = max_results.is_some_and(|n| events.len() >= n);
         let exceed_bytes =
-            max_bytes.map_or(false, |b| !events.is_empty() && byte_count + event_bytes > b);
+            max_bytes.is_some_and(|b| !events.is_empty() && byte_count + event_bytes > b);
 
         if exceed_count || exceed_bytes {
             let cursor = TruncationCursor::encode(&CursorInner::Range {
@@ -185,7 +182,11 @@ pub(crate) fn read_range_bounded_impl(
             } else {
                 TruncationReason::ByteSize
             };
-            return Ok(ReadOutcome::Truncated { data: events, cursor: Some(cursor), reason });
+            return Ok(ReadOutcome::Truncated {
+                data: events,
+                cursor: Some(cursor),
+                reason,
+            });
         }
 
         byte_count += event_bytes;

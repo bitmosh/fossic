@@ -7,10 +7,7 @@ use std::{
 use notify::{RecursiveMode, Watcher};
 use rusqlite::Connection;
 
-use crate::{
-    subscriptions::SubscriptionRegistry,
-    types::StoredEvent,
-};
+use crate::{subscriptions::SubscriptionRegistry, types::StoredEvent};
 
 // ── Public type ───────────────────────────────────────────────────────────────
 
@@ -83,9 +80,7 @@ fn run_scan_loop(
 ) {
     let conn = match Connection::open(&db_path) {
         Ok(c) => {
-            let _ = c.execute_batch(
-                "PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 30000;",
-            );
+            let _ = c.execute_batch("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 30000;");
             c
         }
         Err(e) => {
@@ -110,10 +105,7 @@ fn run_scan_loop(
         };
 
         // Only process events affecting the WAL file.
-        let relevant = event
-            .paths
-            .iter()
-            .any(|p| p.file_name() == Some(&wal_name));
+        let relevant = event.paths.iter().any(|p| p.file_name() == Some(&wal_name));
         if !relevant {
             continue;
         }
@@ -158,7 +150,10 @@ fn run_scan_loop(
                 // Glob: expand to matching stream IDs. cursor = min(stream_cursors)
                 // from post_commit_cursors; use it as the scan start for each stream
                 // so already-delivered events are not re-fetched.
-                for stream_id in all_streams.iter().filter(|s| crate::glob::matches(stream_pattern, s)) {
+                for stream_id in all_streams
+                    .iter()
+                    .filter(|s| crate::glob::matches(stream_pattern, s))
+                {
                     let key = (stream_id.clone(), branch.clone());
                     let entry = group_min.entry(key).or_insert(*cursor);
                     if *cursor < *entry {
@@ -175,14 +170,13 @@ fn run_scan_loop(
         }
 
         for ((stream_id, branch), min_cursor) in &group_min {
-            let new_events =
-                match fetch_events_after(&conn, stream_id, branch, *min_cursor) {
-                    Ok(ev) => ev,
-                    Err(e) => {
-                        eprintln!("[WARN fossic] WAL watcher scan error: {e}");
-                        continue;
-                    }
-                };
+            let new_events = match fetch_events_after(&conn, stream_id, branch, *min_cursor) {
+                Ok(ev) => ev,
+                Err(e) => {
+                    eprintln!("[WARN fossic] WAL watcher scan error: {e}");
+                    continue;
+                }
+            };
 
             for event in new_events {
                 // Fan-out through the store dispatcher (same path as in-process writes).
@@ -218,35 +212,34 @@ fn fetch_events_after(
                ORDER BY version ASC";
 
     let mut stmt = conn.prepare(sql)?;
-    let rows = stmt.query_map(
-        rusqlite::params![stream_id, branch, after_version],
-        |row| {
-            let indexed_tags_json: Option<String> = row.get(11)?;
-            let indexed_tags = indexed_tags_json
-                .as_deref()
-                .map(serde_json::from_str)
-                .transpose()
-                .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
+    let rows = stmt.query_map(rusqlite::params![stream_id, branch, after_version], |row| {
+        let indexed_tags_json: Option<String> = row.get(11)?;
+        let indexed_tags = indexed_tags_json
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()
+            .map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
                     11,
                     rusqlite::types::Type::Text,
                     Box::new(e),
-                ))?;
-            Ok(StoredEvent {
-                id: row.get(0)?,
-                stream_id: row.get(1)?,
-                branch: row.get(2)?,
-                version: row.get::<_, i64>(3)? as u64,
-                timestamp_us: row.get(4)?,
-                causation_id: row.get(5)?,
-                correlation_id: row.get(6)?,
-                event_type: row.get(7)?,
-                type_version: row.get::<_, i64>(8)? as u32,
-                payload: row.get(9)?,
-                external_id: row.get(10)?,
-                indexed_tags,
-            })
-        },
-    )?;
+                )
+            })?;
+        Ok(StoredEvent {
+            id: row.get(0)?,
+            stream_id: row.get(1)?,
+            branch: row.get(2)?,
+            version: row.get::<_, i64>(3)? as u64,
+            timestamp_us: row.get(4)?,
+            causation_id: row.get(5)?,
+            correlation_id: row.get(6)?,
+            event_type: row.get(7)?,
+            type_version: row.get::<_, i64>(8)? as u32,
+            payload: row.get(9)?,
+            external_id: row.get(10)?,
+            indexed_tags,
+        })
+    })?;
 
     let mut events = Vec::new();
     for row in rows {

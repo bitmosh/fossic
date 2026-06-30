@@ -5,8 +5,8 @@ use fossic::{
 
 fn open_tmp() -> (Store, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join("test.db"), OpenOptions::default())
-        .expect("open store");
+    let store =
+        Store::open(dir.path().join("test.db"), OpenOptions::default()).expect("open store");
     (store, dir)
 }
 
@@ -72,7 +72,11 @@ fn read_outcome_truncated_carries_cursor_and_reason() {
     };
     match outcome {
         ReadOutcome::Complete(_) => panic!("expected Truncated"),
-        ReadOutcome::Truncated { data, cursor, reason } => {
+        ReadOutcome::Truncated {
+            data,
+            cursor,
+            reason,
+        } => {
             assert_eq!(data, vec![1]);
             assert_eq!(cursor.unwrap().as_bytes(), &[0xDE, 0xAD]);
             assert_eq!(reason, TruncationReason::ResultCount);

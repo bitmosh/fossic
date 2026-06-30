@@ -37,7 +37,10 @@ pub enum TaskPriority {
 #[derive(Clone)]
 pub enum TaskKind {
     GcOrphanSnapshots,
-    TakeSnapshot { stream_id: String, branch: String },
+    TakeSnapshot {
+        stream_id: String,
+        branch: String,
+    },
     /// One-shot or recurring user-supplied closure. The closure captures
     /// any context it needs (e.g. `Arc<HnswProvider>`) at scheduling time.
     /// Custom tasks are never `persist_on_drop` — set that field to `false`.
@@ -304,7 +307,9 @@ fn execute_task(ops: &dyn StoreOps, task: &BacklogTask) {
         }
         TaskKind::TakeSnapshot { stream_id, branch } => {
             if let Err(e) = ops.bg_take_snapshot(stream_id, branch) {
-                eprintln!("[WARN fossic] fossic-bg: TakeSnapshot({stream_id}, {branch}) failed: {e}");
+                eprintln!(
+                    "[WARN fossic] fossic-bg: TakeSnapshot({stream_id}, {branch}) failed: {e}"
+                );
             }
         }
         TaskKind::Custom(f) => {

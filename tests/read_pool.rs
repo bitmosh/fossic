@@ -9,7 +9,11 @@ fn open_tmp_with_pool_and_timeout(pool_size: usize, timeout_ms: u64) -> (Store, 
     let dir = tempfile::tempdir().unwrap();
     let store = Store::open(
         dir.path().join("test.db"),
-        OpenOptions { read_pool_size: pool_size, read_pool_timeout_ms: timeout_ms, ..Default::default() },
+        OpenOptions {
+            read_pool_size: pool_size,
+            read_pool_timeout_ms: timeout_ms,
+            ..Default::default()
+        },
     )
     .expect("open store");
     (store, dir)
@@ -79,7 +83,11 @@ fn read_does_not_block_when_write_mutex_held() {
 
     // Read must succeed without blocking (uses pool connection, not write mutex).
     let events = store.read_range(ReadQuery::stream("pool/r")).unwrap();
-    assert_eq!(events.len(), 5, "read_range must succeed while write mutex is held");
+    assert_eq!(
+        events.len(),
+        5,
+        "read_range must succeed while write mutex is held"
+    );
 
     // Release the writer.
     let _ = release_tx.send(());
@@ -112,7 +120,11 @@ fn concurrent_reads_all_complete() {
     }
 
     let counts = results.lock().unwrap();
-    assert_eq!(counts.len(), pool_size, "all {pool_size} threads must complete");
+    assert_eq!(
+        counts.len(),
+        pool_size,
+        "all {pool_size} threads must complete"
+    );
     assert!(
         counts.iter().all(|&c| c == 10),
         "each thread must see all 10 events; got: {counts:?}"
@@ -169,7 +181,13 @@ fn pool_exhausted_returns_error() {
 
     let result = store.read_range(ReadQuery::stream("pool/ex"));
     assert!(
-        matches!(result, Err(Error::PoolExhausted { pool_size: 1, timeout_ms: 50 })),
+        matches!(
+            result,
+            Err(Error::PoolExhausted {
+                pool_size: 1,
+                timeout_ms: 50
+            })
+        ),
         "expected PoolExhausted {{ pool_size: 1, timeout_ms: 50 }}"
     );
 

@@ -335,7 +335,7 @@ fn causation_bounded_no_children_returns_complete_empty() {
 fn causation_bounded_breadth_first_sampling_caps_per_level() {
     let store = temp_store();
     let (root, _children) = build_wide_tree(&store); // root → [A, B, C]
-    // BreadthFirst{max_per_level:1}: level 1 has 3 events but only 1 is taken (id ASC).
+                                                     // BreadthFirst{max_per_level:1}: level 1 has 3 events but only 1 is taken (id ASC).
     let outcome = store
         .walk_causation_bounded(
             root,
@@ -357,8 +357,8 @@ fn causation_bounded_breadth_first_sampling_caps_per_level() {
 fn causation_bounded_adaptive_sampling_distributes_count() {
     let store = temp_store();
     let (root, _children) = build_wide_tree(&store); // root → [A, B, C]
-    // Adaptive{target_count:2}, max_depth=1 → max_per_level = max(1, 2/1) = 2.
-    // Level 1 has 3 events → capped to 2. max_depth=1 stops here → Complete([A, B]).
+                                                     // Adaptive{target_count:2}, max_depth=1 → max_per_level = max(1, 2/1) = 2.
+                                                     // Level 1 has 3 events → capped to 2. max_depth=1 stops here → Complete([A, B]).
     let outcome = store
         .walk_causation_bounded(
             root,

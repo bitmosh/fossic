@@ -95,9 +95,7 @@ fn build_chain(store: &Store) -> Vec<EventId> {
 fn range_iter_empty_stream_returns_no_items() {
     let store = temp_store();
     store.declare_stream("s", "main", None).unwrap();
-    let items: Vec<_> = store
-        .read_range_iter(ReadQuery::stream("s"))
-        .collect();
+    let items: Vec<_> = store.read_range_iter(ReadQuery::stream("s")).collect();
     assert!(items.is_empty());
 }
 
@@ -133,8 +131,14 @@ fn range_iter_fused_after_exhaustion() {
     assert!(iter.next().is_some());
     assert!(iter.next().is_some());
     assert!(iter.next().is_none());
-    assert!(iter.next().is_none(), "fused: must return None after exhaustion");
-    assert!(iter.next().is_none(), "fused: must return None on repeated calls");
+    assert!(
+        iter.next().is_none(),
+        "fused: must return None after exhaustion"
+    );
+    assert!(
+        iter.next().is_none(),
+        "fused: must return None on repeated calls"
+    );
 }
 
 #[test]
@@ -159,9 +163,7 @@ fn range_iter_across_batch_boundary() {
 fn correlation_iter_collects_all_correlated_events() {
     let store = temp_store();
     let root = append_correlated(&store, 6);
-    let count = store
-        .read_by_correlation_iter(root)
-        .count();
+    let count = store.read_by_correlation_iter(root).count();
     assert_eq!(count, 6);
 }
 
@@ -196,9 +198,7 @@ fn correlation_iter_fused_after_exhaustion() {
 fn correlation_iter_across_batch_boundary() {
     let store = temp_store();
     let root = append_correlated(&store, 105);
-    let items: Vec<_> = store
-        .read_by_correlation_iter(root)
-        .collect();
+    let items: Vec<_> = store.read_by_correlation_iter(root).collect();
     assert_eq!(items.len(), 105);
 }
 
@@ -238,12 +238,8 @@ fn causation_iter_empty_returns_no_items() {
 fn causation_iter_fused_after_exhaustion() {
     let store = temp_store();
     let ids = build_chain(&store);
-    let mut iter = store.walk_causation_iter(
-        ids[0],
-        WalkDirection::Forward,
-        1,
-        SamplingMode::Exhaustive,
-    );
+    let mut iter =
+        store.walk_causation_iter(ids[0], WalkDirection::Forward, 1, SamplingMode::Exhaustive);
     // max_depth=1 yields only d1, then exhausts
     assert!(iter.next().is_some());
     assert!(iter.next().is_none());
@@ -282,12 +278,7 @@ fn iterator_releases_pool_connection_between_yields() {
     let handle = std::thread::spawn(move || {
         // Signal main thread that we're ready to read, then immediately read.
         barrier_ref.wait();
-        let result = store_ref.read_range_bounded(
-            ReadQuery::stream("s"),
-            Some(1),
-            None,
-            None,
-        );
+        let result = store_ref.read_range_bounded(ReadQuery::stream("s"), Some(1), None, None);
         result.is_ok()
     });
 
@@ -307,5 +298,8 @@ fn iterator_releases_pool_connection_between_yields() {
     }
 
     let second_thread_ok = handle.join().expect("thread panicked");
-    assert!(second_thread_ok, "concurrent read must succeed — iterator must not hold the pool connection across yields");
+    assert!(
+        second_thread_ok,
+        "concurrent read must succeed — iterator must not hold the pool connection across yields"
+    );
 }

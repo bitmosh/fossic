@@ -1,4 +1,7 @@
-use fossic::{BacklogTask, EventId, OpenOptions, SimilarityQuery, SimilaritySearchProvider, Store, TaskKind, TaskPriority};
+use fossic::{
+    BacklogTask, EventId, OpenOptions, SimilarityQuery, SimilaritySearchProvider, Store, TaskKind,
+    TaskPriority,
+};
 use fossic_similarity_hnsw::{HnswConfig, HnswProvider};
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -53,7 +56,10 @@ fn event_id_u16(n: u16) -> EventId {
 fn random_unit_vec(dims: usize, seed: u32) -> Vec<f32> {
     let mut v: Vec<f32> = (0..dims)
         .map(|i| {
-            let x = seed.wrapping_mul(1664525).wrapping_add(1013904223).wrapping_add(i as u32);
+            let x = seed
+                .wrapping_mul(1664525)
+                .wrapping_add(1013904223)
+                .wrapping_add(i as u32);
             (x as f32 / u32::MAX as f32) * 2.0 - 1.0
         })
         .collect();
@@ -80,11 +86,13 @@ fn index_and_query_roundtrip() {
     let (p, _dir) = make_provider(4);
     let eid = event_id(1);
     p.index(eid, &[1.0, 0.0, 0.0, 0.0]).unwrap();
-    let hits = p.query(SimilarityQuery {
-        embedding: vec![1.0, 0.0, 0.0, 0.0],
-        k: 1,
-        stream_pattern: None,
-    }).unwrap();
+    let hits = p
+        .query(SimilarityQuery {
+            embedding: vec![1.0, 0.0, 0.0, 0.0],
+            k: 1,
+            stream_pattern: None,
+        })
+        .unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].event_id, eid);
 }
@@ -99,22 +107,27 @@ fn index_wrong_dims_returns_error() {
 fn query_wrong_dims_returns_error() {
     let (p, _dir) = make_provider(4);
     p.index(event_id(1), &[1.0, 0.0, 0.0, 0.0]).unwrap();
-    assert!(p.query(SimilarityQuery {
-        embedding: vec![1.0, 0.0],
-        k: 1,
-        stream_pattern: None,
-    }).is_err());
+    assert!(p
+        .query(SimilarityQuery {
+            embedding: vec![1.0, 0.0],
+            k: 1,
+            stream_pattern: None,
+        })
+        .is_err());
 }
 
 #[test]
 fn zero_k_returns_empty() {
     let (p, _dir) = make_provider(4);
     p.index(event_id(1), &[1.0, 0.0, 0.0, 0.0]).unwrap();
-    assert!(p.query(SimilarityQuery {
-        embedding: vec![1.0, 0.0, 0.0, 0.0],
-        k: 0,
-        stream_pattern: None,
-    }).unwrap().is_empty());
+    assert!(p
+        .query(SimilarityQuery {
+            embedding: vec![1.0, 0.0, 0.0, 0.0],
+            k: 0,
+            stream_pattern: None,
+        })
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -158,21 +171,24 @@ fn persistence_round_trip_with_stream_filter() {
 
     // Unfiltered query should return k results.
     let q_emb = random_unit_vec(DIMS, 9999);
-    let hits = p2.query(SimilarityQuery {
-        embedding: q_emb.clone(),
-        k: 10,
-        stream_pattern: None,
-    }).unwrap();
+    let hits = p2
+        .query(SimilarityQuery {
+            embedding: q_emb.clone(),
+            k: 10,
+            stream_pattern: None,
+        })
+        .unwrap();
     assert_eq!(hits.len(), 10);
 
     // Stream-filtered query: results must all belong to "alpha" (IDs 0..200, stream index 0).
-    let alpha_ids: std::collections::HashSet<EventId> =
-        (0u16..200).map(event_id_u16).collect();
-    let filtered = p2.query(SimilarityQuery {
-        embedding: q_emb,
-        k: 5,
-        stream_pattern: Some("alpha".to_string()),
-    }).unwrap();
+    let alpha_ids: std::collections::HashSet<EventId> = (0u16..200).map(event_id_u16).collect();
+    let filtered = p2
+        .query(SimilarityQuery {
+            embedding: q_emb,
+            k: 5,
+            stream_pattern: Some("alpha".to_string()),
+        })
+        .unwrap();
     assert!(!filtered.is_empty());
     for hit in &filtered {
         assert!(
@@ -195,11 +211,13 @@ fn save_and_load_empty_index() {
     let p2 = make_provider_in(&dir, 4);
     assert_eq!(p2.len(), 0);
     // Queries still work on empty reloaded index.
-    let hits = p2.query(SimilarityQuery {
-        embedding: vec![1.0, 0.0, 0.0, 0.0],
-        k: 5,
-        stream_pattern: None,
-    }).unwrap();
+    let hits = p2
+        .query(SimilarityQuery {
+            embedding: vec![1.0, 0.0, 0.0, 0.0],
+            k: 5,
+            stream_pattern: None,
+        })
+        .unwrap();
     assert!(hits.is_empty());
 }
 
@@ -216,7 +234,8 @@ fn corrupt_index_data_file_recovers_to_empty() {
     {
         let p = make_provider_in(&dir, DIMS);
         for i in 0u8..10 {
-            p.index(event_id(i), &random_unit_vec(DIMS, i as u32 + 1)).unwrap();
+            p.index(event_id(i), &random_unit_vec(DIMS, i as u32 + 1))
+                .unwrap();
         }
         p.save_to_disk().unwrap();
     }
@@ -244,7 +263,8 @@ fn corrupt_mappings_version_byte_recovers_to_empty() {
     {
         let p = make_provider_in(&dir, DIMS);
         for i in 0u8..5 {
-            p.index(event_id(i), &random_unit_vec(DIMS, i as u32 + 1)).unwrap();
+            p.index(event_id(i), &random_unit_vec(DIMS, i as u32 + 1))
+                .unwrap();
         }
         p.save_to_disk().unwrap();
     }
@@ -256,7 +276,11 @@ fn corrupt_mappings_version_byte_recovers_to_empty() {
     std::fs::write(&mappings_path, &data).unwrap();
 
     let p2 = make_provider_in(&dir, DIMS);
-    assert_eq!(p2.len(), 0, "invalid mappings version should recover to empty");
+    assert_eq!(
+        p2.len(),
+        0,
+        "invalid mappings version should recover to empty"
+    );
 }
 
 // ── Persistence: partial-save cleanup ────────────────────────────────────────
@@ -286,7 +310,10 @@ fn partial_save_cleans_up_all_files() {
 
     // save_to_disk: graph dump succeeds, then File::create(mappings.bin) fails.
     let result = p.save_to_disk();
-    assert!(result.is_err(), "save should fail when mappings.bin cannot be created");
+    assert!(
+        result.is_err(),
+        "save should fail when mappings.bin cannot be created"
+    );
 
     // Graph files must be cleaned up.
     assert!(
@@ -305,14 +332,19 @@ fn partial_save_cleans_up_all_files() {
 fn stream_pattern_glob_matches_multiple_streams() {
     const DIMS: usize = 8;
     let (p, _dir) = make_provider(DIMS);
-    p.index_with_stream_id(event_id(1), "events/user", &random_unit_vec(DIMS, 1)).unwrap();
-    p.index_with_stream_id(event_id(2), "events/system", &random_unit_vec(DIMS, 2)).unwrap();
-    p.index_with_stream_id(event_id(3), "metrics/host", &random_unit_vec(DIMS, 3)).unwrap();
-    let hits = p.query(SimilarityQuery {
-        embedding: random_unit_vec(DIMS, 42),
-        k: 5,
-        stream_pattern: Some("events/*".to_string()),
-    }).unwrap();
+    p.index_with_stream_id(event_id(1), "events/user", &random_unit_vec(DIMS, 1))
+        .unwrap();
+    p.index_with_stream_id(event_id(2), "events/system", &random_unit_vec(DIMS, 2))
+        .unwrap();
+    p.index_with_stream_id(event_id(3), "metrics/host", &random_unit_vec(DIMS, 3))
+        .unwrap();
+    let hits = p
+        .query(SimilarityQuery {
+            embedding: random_unit_vec(DIMS, 42),
+            k: 5,
+            stream_pattern: Some("events/*".to_string()),
+        })
+        .unwrap();
     assert!(!hits.is_empty());
     for hit in &hits {
         assert_ne!(hit.event_id, event_id(3));
@@ -323,13 +355,17 @@ fn stream_pattern_glob_matches_multiple_streams() {
 fn stream_filter_excludes_all_returns_empty() {
     const DIMS: usize = 4;
     let (p, _dir) = make_provider(DIMS);
-    p.index_with_stream_id(event_id(1), "other", &[1.0, 0.0, 0.0, 0.0]).unwrap();
-    p.index_with_stream_id(event_id(2), "other", &[0.0, 1.0, 0.0, 0.0]).unwrap();
-    let hits = p.query(SimilarityQuery {
-        embedding: vec![1.0, 0.0, 0.0, 0.0],
-        k: 2,
-        stream_pattern: Some("target".to_string()),
-    }).unwrap();
+    p.index_with_stream_id(event_id(1), "other", &[1.0, 0.0, 0.0, 0.0])
+        .unwrap();
+    p.index_with_stream_id(event_id(2), "other", &[0.0, 1.0, 0.0, 0.0])
+        .unwrap();
+    let hits = p
+        .query(SimilarityQuery {
+            embedding: vec![1.0, 0.0, 0.0, 0.0],
+            k: 2,
+            stream_pattern: Some("target".to_string()),
+        })
+        .unwrap();
     assert!(hits.is_empty());
 }
 
@@ -338,12 +374,15 @@ fn trait_indexed_events_excluded_from_stream_filter() {
     const DIMS: usize = 4;
     let (p, _dir) = make_provider(DIMS);
     p.index(event_id(1), &[1.0, 0.0, 0.0, 0.0]).unwrap();
-    p.index_with_stream_id(event_id(2), "stream/a", &[0.9, 0.1, 0.0, 0.0]).unwrap();
-    let hits = p.query(SimilarityQuery {
-        embedding: vec![1.0, 0.0, 0.0, 0.0],
-        k: 2,
-        stream_pattern: Some("stream/*".to_string()),
-    }).unwrap();
+    p.index_with_stream_id(event_id(2), "stream/a", &[0.9, 0.1, 0.0, 0.0])
+        .unwrap();
+    let hits = p
+        .query(SimilarityQuery {
+            embedding: vec![1.0, 0.0, 0.0, 0.0],
+            k: 2,
+            stream_pattern: Some("stream/*".to_string()),
+        })
+        .unwrap();
     for hit in &hits {
         assert_ne!(hit.event_id, event_id(1));
     }
@@ -370,10 +409,22 @@ fn schedule_save_fires_when_dirty() {
     std::thread::sleep(std::time::Duration::from_millis(700));
 
     assert!(!p.is_dirty(), "dirty should be cleared after save");
-    assert!(!p.is_save_pending(), "save_pending should be cleared after closure runs");
-    assert!(hnsw_dir.join("index.hnsw.data").exists(), "graph data file must exist after save");
-    assert!(hnsw_dir.join("index.hnsw.graph").exists(), "graph file must exist after save");
-    assert!(hnsw_dir.join("mappings.bin").exists(), "mappings file must exist after save");
+    assert!(
+        !p.is_save_pending(),
+        "save_pending should be cleared after closure runs"
+    );
+    assert!(
+        hnsw_dir.join("index.hnsw.data").exists(),
+        "graph data file must exist after save"
+    );
+    assert!(
+        hnsw_dir.join("index.hnsw.graph").exists(),
+        "graph file must exist after save"
+    );
+    assert!(
+        hnsw_dir.join("mappings.bin").exists(),
+        "mappings file must exist after save"
+    );
     drop(store);
 }
 
@@ -389,7 +440,10 @@ fn schedule_save_noop_when_not_dirty() {
     assert!(!p.is_dirty());
     HnswProvider::schedule_save(Arc::clone(&p), &store, TaskPriority::Low);
     // save_pending must remain false — no task was queued
-    assert!(!p.is_save_pending(), "schedule_save must be a no-op when dirty=false");
+    assert!(
+        !p.is_save_pending(),
+        "schedule_save must be a no-op when dirty=false"
+    );
     drop(store);
 }
 
@@ -403,11 +457,15 @@ fn schedule_save_storm_prevention() {
 
     // Hot loop: index + schedule_save 1000 times.
     for i in 0u8..=255 {
-        p.index(event_id(i), &[i as f32 / 255.0, 0.0, 0.0, 0.0]).unwrap();
+        p.index(event_id(i), &[i as f32 / 255.0, 0.0, 0.0, 0.0])
+            .unwrap();
         HnswProvider::schedule_save(Arc::clone(&p), &store, TaskPriority::Low);
     }
     // Only the first schedule_save queues a task; remaining 255 are no-ops.
-    assert!(p.is_save_pending(), "save_pending must be true after first schedule");
+    assert!(
+        p.is_save_pending(),
+        "save_pending must be true after first schedule"
+    );
 
     // Wait for one task execution (700ms is one bg-thread tick).
     std::thread::sleep(std::time::Duration::from_millis(700));
@@ -453,7 +511,10 @@ fn schedule_save_low_priority_yields_to_normal() {
     let n_seq = normal_seq.load(AO::SeqCst);
     assert!(n_seq > 0, "Normal task must have run within the first tick");
     // dirty=true means Low (save) hasn't run yet
-    assert!(p.is_dirty(), "Low-priority save should not have run yet after tick 1");
+    assert!(
+        p.is_dirty(),
+        "Low-priority save should not have run yet after tick 1"
+    );
 
     // After 2 ticks: Low (save) should have run.
     std::thread::sleep(std::time::Duration::from_millis(700));
@@ -488,7 +549,10 @@ fn schedule_save_drop_provider_before_quiescence_noop() {
     std::thread::sleep(std::time::Duration::from_millis(700));
 
     // No panic, no files written (closure was a no-op due to failed upgrade).
-    assert!(!hnsw_dir.join("index.hnsw.data").exists(), "no graph files after dropped-provider save");
+    assert!(
+        !hnsw_dir.join("index.hnsw.data").exists(),
+        "no graph files after dropped-provider save"
+    );
     assert!(!hnsw_dir.join("index.hnsw.graph").exists());
     drop(store);
 }

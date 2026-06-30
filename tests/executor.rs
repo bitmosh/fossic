@@ -116,7 +116,9 @@ fn multiple_panics_in_custom_tasks_all_isolated() {
         priority: TaskPriority::Normal,
         deadline_us: 4,
         persist_on_drop: false,
-        kind: TaskKind::Custom(Arc::new(move || { count2.fetch_add(1, Ordering::SeqCst); })),
+        kind: TaskKind::Custom(Arc::new(move || {
+            count2.fetch_add(1, Ordering::SeqCst);
+        })),
         recurring_interval: None,
     });
 
@@ -143,7 +145,9 @@ fn executor_short_grace_closes_within_timeout() {
         ..OpenOptions::default()
     });
 
-    store.declare_stream("executor/grace", "test", None).unwrap();
+    store
+        .declare_stream("executor/grace", "test", None)
+        .unwrap();
     store
         .append(Append {
             stream_id: "executor/grace".into(),

@@ -41,7 +41,7 @@ section is required even if empty — write "No new entries this pass. No entrie
 breaking API changes, behavior changes, or new APIs that adjacent projects use, create
 `docs/aseptic/cross-pollination/pass-NN.md` using the format in
 `docs/aseptic/CROSS_POLLINATION.md`. fossic's adjacent projects are: cerebra,
-policy-scout, lumaweave, bo, ai-stack, rhyzome (benched), bons.ai (benched).
+policy-scout, lumaweave, bo, ai-stack.
 
 **4. Write the pass report.** Use the format in `docs/aseptic/PASS_REPORTING.md`.
 The "no new entries" confirmation in section 5 is required and must be explicit.

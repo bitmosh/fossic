@@ -1,13 +1,12 @@
 use fossic::{
-    Aggregate, AggregateQuery, Append, EventId, OpenOptions, StoredEvent, Store,
-    WalkDirection,
+    Aggregate, AggregateQuery, Append, EventId, OpenOptions, Store, StoredEvent, WalkDirection,
 };
 use std::collections::HashMap;
 
 fn open_tmp() -> (Store, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join("test.db"), OpenOptions::default())
-        .expect("open store");
+    let store =
+        Store::open(dir.path().join("test.db"), OpenOptions::default()).expect("open store");
     (store, dir)
 }
 
@@ -122,9 +121,15 @@ fn walk_causation_forward_depth3() {
     let ids = build_chain(&store);
     let root = ids[0];
 
-    let results = store.walk_causation(root, WalkDirection::Forward, 3).unwrap();
+    let results = store
+        .walk_causation(root, WalkDirection::Forward, 3)
+        .unwrap();
     // Should find d1, d2, d3 (3 descendants).
-    assert_eq!(results.len(), 3, "forward depth=3 must return 3 descendants");
+    assert_eq!(
+        results.len(),
+        3,
+        "forward depth=3 must return 3 descendants"
+    );
 
     // BFS order: shallowest first.
     let depths: Vec<i64> = results
@@ -142,8 +147,14 @@ fn walk_causation_forward_depth_limited() {
     let (store, _dir) = open_tmp();
     let ids = build_chain(&store);
 
-    let results = store.walk_causation(ids[0], WalkDirection::Forward, 2).unwrap();
-    assert_eq!(results.len(), 2, "depth limit=2 must return only 2 descendants");
+    let results = store
+        .walk_causation(ids[0], WalkDirection::Forward, 2)
+        .unwrap();
+    assert_eq!(
+        results.len(),
+        2,
+        "depth limit=2 must return only 2 descendants"
+    );
     let depths: Vec<i64> = results
         .iter()
         .map(|e| {
@@ -160,9 +171,15 @@ fn walk_causation_backward_to_root() {
     let ids = build_chain(&store);
     let leaf = ids[3]; // d3
 
-    let results = store.walk_causation(leaf, WalkDirection::Backward, 10).unwrap();
+    let results = store
+        .walk_causation(leaf, WalkDirection::Backward, 10)
+        .unwrap();
     // Should find d2, d1, root (3 ancestors).
-    assert_eq!(results.len(), 3, "backward from leaf must find all ancestors");
+    assert_eq!(
+        results.len(),
+        3,
+        "backward from leaf must find all ancestors"
+    );
 
     let depths: Vec<i64> = results
         .iter()
@@ -180,7 +197,9 @@ fn walk_causation_both_direction() {
     let ids = build_chain(&store);
     let middle = ids[1]; // d1: parent=root, child=d2→d3
 
-    let results = store.walk_causation(middle, WalkDirection::Both, 10).unwrap();
+    let results = store
+        .walk_causation(middle, WalkDirection::Both, 10)
+        .unwrap();
     // Forward from d1: d2, d3; Backward from d1: root
     let result_ids: Vec<[u8; 32]> = results.iter().map(|e| *e.id.as_bytes()).collect();
 
@@ -194,7 +213,9 @@ fn walk_causation_both_direction() {
 fn walk_causation_forward_max_depth_zero_returns_empty() {
     let (store, _dir) = open_tmp();
     let ids = build_chain(&store);
-    let results = store.walk_causation(ids[0], WalkDirection::Forward, 0).unwrap();
+    let results = store
+        .walk_causation(ids[0], WalkDirection::Forward, 0)
+        .unwrap();
     assert!(results.is_empty());
 }
 
@@ -376,8 +397,12 @@ fn aggregate_indexed_tags_boolean_filter() {
     struct CountEvents(u64);
     impl Aggregate for CountEvents {
         type Output = u64;
-        fn fold(&mut self, _: &StoredEvent) { self.0 += 1; }
-        fn finalize(self) -> u64 { self.0 }
+        fn fold(&mut self, _: &StoredEvent) {
+            self.0 += 1;
+        }
+        fn finalize(self) -> u64 {
+            self.0
+        }
     }
 
     // Use a global seq in payload to prevent CCE dedup across the two groups.
@@ -393,7 +418,9 @@ fn aggregate_indexed_tags_boolean_filter() {
                     event_type: "IdeaScored".to_string(),
                     type_version: 1,
                     payload: serde_json::json!({ "seq": seq }),
-                    indexed_tags: Some(serde_json::json!({ "composite_floor_violated": *violated })),
+                    indexed_tags: Some(
+                        serde_json::json!({ "composite_floor_violated": *violated }),
+                    ),
                     ..Default::default()
                 })
                 .unwrap();
@@ -447,8 +474,12 @@ fn aggregate_indexed_tags_multi_key_and() {
     struct CountEvents(u64);
     impl Aggregate for CountEvents {
         type Output = u64;
-        fn fold(&mut self, _: &StoredEvent) { self.0 += 1; }
-        fn finalize(self) -> u64 { self.0 }
+        fn fold(&mut self, _: &StoredEvent) {
+            self.0 += 1;
+        }
+        fn finalize(self) -> u64 {
+            self.0
+        }
     }
 
     let count = store
@@ -501,7 +532,9 @@ fn aggregate_indexed_tags_filter_no_match_returns_empty() {
 fn aggregate_single_star_does_not_cross_segments() {
     let (store, _dir) = open_tmp();
     store.declare_stream("bonsai/ideas", "test", None).unwrap();
-    store.declare_stream("bonsai/ideas/nested", "test", None).unwrap();
+    store
+        .declare_stream("bonsai/ideas/nested", "test", None)
+        .unwrap();
 
     store
         .append(Append {
@@ -523,8 +556,12 @@ fn aggregate_single_star_does_not_cross_segments() {
     struct CountEvents(u64);
     impl Aggregate for CountEvents {
         type Output = u64;
-        fn fold(&mut self, _: &StoredEvent) { self.0 += 1; }
-        fn finalize(self) -> u64 { self.0 }
+        fn fold(&mut self, _: &StoredEvent) {
+            self.0 += 1;
+        }
+        fn finalize(self) -> u64 {
+            self.0
+        }
     }
 
     // "bonsai/*" should match "bonsai/ideas" but NOT "bonsai/ideas/nested"

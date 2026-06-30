@@ -55,9 +55,7 @@ pub(crate) fn purge_event_impl(
         match result {
             Ok(row) => row,
             Err(rusqlite::Error::QueryReturnedNoRows) => {
-                return Err(Error::EventNotFound {
-                    id: id.to_hex(),
-                });
+                return Err(Error::EventNotFound { id: id.to_hex() });
             }
             Err(e) => return Err(Error::Sqlite(e)),
         }

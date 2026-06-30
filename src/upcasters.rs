@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::{error::Error, types::StoredEvent};
+use std::collections::HashMap;
 
 /// Transforms a msgpack-encoded payload from one `type_version` to the next.
 ///
@@ -25,13 +25,7 @@ pub(crate) struct UpcasterRegistry {
 }
 
 impl UpcasterRegistry {
-    pub fn register(
-        &mut self,
-        event_type: &str,
-        from: u32,
-        to: u32,
-        upcaster: Box<dyn Upcaster>,
-    ) {
+    pub fn register(&mut self, event_type: &str, from: u32, to: u32, upcaster: Box<dyn Upcaster>) {
         let vec = self.entries.entry(event_type.to_string()).or_default();
         vec.push(UpcasterEntry { from, to, upcaster });
         vec.sort_by_key(|e| e.from);

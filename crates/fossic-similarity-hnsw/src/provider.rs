@@ -188,12 +188,12 @@ impl HnswProvider {
     /// The index directory `<parent>/hnsw/` is created if it does not exist.
     /// If `index.hnsw.data`, `index.hnsw.graph`, and `mappings.bin` are all
     /// present, the index is loaded immediately; otherwise it starts empty.
-    pub fn new(
-        store_db_path: impl Into<PathBuf>,
-        config: HnswConfig,
-    ) -> Result<Self, HnswError> {
+    pub fn new(store_db_path: impl Into<PathBuf>, config: HnswConfig) -> Result<Self, HnswError> {
         if config.dimensions == 0 {
-            return Err(HnswError::InvalidDimensions { expected: 1, got: 0 });
+            return Err(HnswError::InvalidDimensions {
+                expected: 1,
+                got: 0,
+            });
         }
 
         let db_path = store_db_path.into();
@@ -311,8 +311,16 @@ impl HnswProvider {
         let vector_count = mappings.usize_to_event_id.len();
         let next_id = vector_count;
 
-        let index_file_bytes = self.index_data_path().metadata().map(|m| m.len()).unwrap_or(0)
-            + self.index_graph_path().metadata().map(|m| m.len()).unwrap_or(0);
+        let index_file_bytes = self
+            .index_data_path()
+            .metadata()
+            .map(|m| m.len())
+            .unwrap_or(0)
+            + self
+                .index_graph_path()
+                .metadata()
+                .map(|m| m.len())
+                .unwrap_or(0);
         let mappings_file_bytes = self
             .mappings_bin_path()
             .metadata()
@@ -481,7 +489,9 @@ impl HnswProvider {
             deadline_us: fossic_now_us() + 5_000_000,
             persist_on_drop: false,
             kind: TaskKind::Custom(std::sync::Arc::new(move || {
-                let Some(p) = provider_weak.upgrade() else { return };
+                let Some(p) = provider_weak.upgrade() else {
+                    return;
+                };
                 // Clear save_pending first so concurrent callers can re-queue
                 // while this save is in progress.
                 p.save_pending.store(false, Ordering::Release);
@@ -508,14 +518,19 @@ impl HnswProvider {
     ) -> Result<(), HnswError> {
         let expected = self.config.dimensions;
         if embedding.len() != expected {
-            return Err(HnswError::InvalidDimensions { expected, got: embedding.len() });
+            return Err(HnswError::InvalidDimensions {
+                expected,
+                got: embedding.len(),
+            });
         }
         let mut guard = self.inner.lock();
         let inner = guard.get_or_insert_with(|| HnswInner::new(&self.config));
         let id = inner.next_id;
         inner.index.insert(embedding, id);
         inner.usize_to_event_id.push(event_id);
-        inner.event_id_to_stream_id.insert(event_id, stream_id.to_string());
+        inner
+            .event_id_to_stream_id
+            .insert(event_id, stream_id.to_string());
         inner.next_id += 1;
         self.dirty.store(true, Ordering::Release);
         Ok(())
@@ -554,7 +569,11 @@ impl SimilaritySearchProvider for HnswProvider {
     fn index(&self, event_id: EventId, embedding: &[f32]) -> Result<(), Error> {
         let expected = self.config.dimensions;
         if embedding.len() != expected {
-            return Err(HnswError::InvalidDimensions { expected, got: embedding.len() }.into());
+            return Err(HnswError::InvalidDimensions {
+                expected,
+                got: embedding.len(),
+            }
+            .into());
         }
         let mut guard = self.inner.lock();
         let inner = guard.get_or_insert_with(|| HnswInner::new(&self.config));
@@ -571,7 +590,11 @@ impl SimilaritySearchProvider for HnswProvider {
     fn query(&self, q: SimilarityQuery) -> Result<Vec<SimilarityHit>, Error> {
         let expected = self.config.dimensions;
         if q.embedding.len() != expected {
-            return Err(HnswError::InvalidDimensions { expected, got: q.embedding.len() }.into());
+            return Err(HnswError::InvalidDimensions {
+                expected,
+                got: q.embedding.len(),
+            }
+            .into());
         }
         if q.k == 0 {
             return Ok(vec![]);
@@ -588,12 +611,15 @@ impl SimilaritySearchProvider for HnswProvider {
         }
 
         let internal_k = if q.stream_pattern.is_some() {
-            q.k.saturating_mul(self.config.stream_filter_fudge_factor).max(q.k)
+            q.k.saturating_mul(self.config.stream_filter_fudge_factor)
+                .max(q.k)
         } else {
             q.k
         };
 
-        let neighbours = inner.index.search(&q.embedding, internal_k, self.config.ef_search);
+        let neighbours = inner
+            .index
+            .search(&q.embedding, internal_k, self.config.ef_search);
 
         let mut hits: Vec<SimilarityHit> = Vec::with_capacity(q.k);
         for n in neighbours {
@@ -610,7 +636,10 @@ impl SimilaritySearchProvider for HnswProvider {
                 }
             }
 
-            hits.push(SimilarityHit { event_id, score: n.distance });
+            hits.push(SimilarityHit {
+                event_id,
+                score: n.distance,
+            });
             if hits.len() >= q.k {
                 break;
             }
@@ -640,9 +669,10 @@ where
     // that no Hnsw<'b, ..> (lifetime tied to io) escapes the closure body.
     let load_result: std::thread::Result<Result<Hnsw<'static, f32, D>, _>> =
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            io.load_hnsw::<f32, D>().map(|h: Hnsw<'_, f32, D>| -> Hnsw<'static, f32, D> {
-                unsafe { std::mem::transmute(h) }
-            })
+            io.load_hnsw::<f32, D>()
+                .map(|h: Hnsw<'_, f32, D>| -> Hnsw<'static, f32, D> {
+                    unsafe { std::mem::transmute(h) }
+                })
         }));
     match load_result {
         Ok(Ok(h)) => Ok(h),

@@ -107,7 +107,10 @@ fn run_all_vectors() {
         passed += 1;
     }
 
-    println!("CCE vectors: {} passed, {} skipped (null expected_hex)", passed, skipped);
+    println!(
+        "CCE vectors: {} passed, {} skipped (null expected_hex)",
+        passed, skipped
+    );
     assert!(passed > 0, "no vectors ran");
 }
 
@@ -118,11 +121,19 @@ fn print_computed_vectors() {
     const VECTORS_JSON: &str = include_str!("../cce-test-vectors.json");
     let file: VectorFile = serde_json::from_str(VECTORS_JSON).expect("parse test vectors");
 
-    for vec in file.encode_value_vectors.iter().filter(|v| v.expected_hex.is_none()) {
+    for vec in file
+        .encode_value_vectors
+        .iter()
+        .filter(|v| v.expected_hex.is_none())
+    {
         let got = match &vec.input {
             VectorInput::Json { value } => {
                 let mut out = Vec::new();
-                if encode_value(&mut out, value).is_ok() { out } else { continue }
+                if encode_value(&mut out, value).is_ok() {
+                    out
+                } else {
+                    continue;
+                }
             }
             _ => continue,
         };

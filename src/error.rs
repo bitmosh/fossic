@@ -18,14 +18,19 @@ pub enum Error {
     #[error("store not found at '{path}'")]
     StoreNotFound { path: String },
 
-    #[error("schema version {stored} is newer than this build supports ({required}); upgrade fossic")]
+    #[error(
+        "schema version {stored} is newer than this build supports ({required}); upgrade fossic"
+    )]
     SchemaMismatch { stored: u32, required: u32 },
 
     #[error("not implemented in v1: {feature}")]
     NotImplemented { feature: &'static str },
 
     #[error("branch not found: {stream_id}/{branch_id}")]
-    BranchNotFound { stream_id: String, branch_id: String },
+    BranchNotFound {
+        stream_id: String,
+        branch_id: String,
+    },
 
     #[error("branch lifecycle error: {reason}")]
     BranchLifecycleError { reason: String },
@@ -83,7 +88,6 @@ pub enum Error {
 
     // ── PHASE 1 ERRORS ────────────────────────────────────────────────────────
     // All Phase 1 (Bounded Resource API) error variants live below this marker.
-
     #[error("read budget exceeded: {budget:?} limit is {limit}")]
     ReadBudgetExceeded { budget: BudgetKind, limit: usize },
 
@@ -100,7 +104,6 @@ pub enum Error {
 
     // ── PHASE 6+7+8 ERRORS ───────────────────────────────────────────────────
     // All Phase 6, 7, 8 error variants insert below this marker.
-
     #[error("snapshot policy invalid: {0}")]
     SnapshotPolicyInvalid(String),
 }

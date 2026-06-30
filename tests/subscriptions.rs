@@ -1,6 +1,6 @@
 use fossic::{
-    Append, OpenOptions, ReadQuery, Store, SubscribeQuery, SubscriptionHandler, SubscriptionMode,
-    StoredEvent,
+    Append, OpenOptions, ReadQuery, Store, StoredEvent, SubscribeQuery, SubscriptionHandler,
+    SubscriptionMode,
 };
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -11,8 +11,8 @@ use std::sync::{
 
 fn open_tmp() -> (Store, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join("test.db"), OpenOptions::default())
-        .expect("open store");
+    let store =
+        Store::open(dir.path().join("test.db"), OpenOptions::default()).expect("open store");
     (store, dir)
 }
 
@@ -111,7 +111,10 @@ fn sync_panic_does_not_abort_append() {
     assert_ne!(id.to_hex(), "");
 
     // The subscription is marked degraded after the panic.
-    assert!(handle.is_degraded(), "subscription must be degraded after panic");
+    assert!(
+        handle.is_degraded(),
+        "subscription must be degraded after panic"
+    );
 }
 
 #[test]
@@ -443,7 +446,9 @@ fn multiple_subscribers_same_stream_both_receive() {
         .subscribe(
             SubscribeQuery::stream("test/multi"),
             SubscriptionMode::PostCommit { queue_size: 8 },
-            FnHandler(move |_| { c1c.fetch_add(1, Ordering::Relaxed); }),
+            FnHandler(move |_| {
+                c1c.fetch_add(1, Ordering::Relaxed);
+            }),
         )
         .unwrap();
 
@@ -451,7 +456,9 @@ fn multiple_subscribers_same_stream_both_receive() {
         .subscribe(
             SubscribeQuery::stream("test/multi"),
             SubscriptionMode::PostCommit { queue_size: 8 },
-            FnHandler(move |_| { c2c.fetch_add(1, Ordering::Relaxed); }),
+            FnHandler(move |_| {
+                c2c.fetch_add(1, Ordering::Relaxed);
+            }),
         )
         .unwrap();
 
@@ -507,7 +514,9 @@ fn idempotent_append_not_redispatched() {
         .subscribe(
             SubscribeQuery::stream("test/idemp"),
             SubscriptionMode::PostCommit { queue_size: 8 },
-            FnHandler(move |_| { count2.fetch_add(1, Ordering::Relaxed); }),
+            FnHandler(move |_| {
+                count2.fetch_add(1, Ordering::Relaxed);
+            }),
         )
         .unwrap();
 
@@ -546,7 +555,9 @@ fn system_stream_events_not_dispatched_to_user_subscribers() {
         .subscribe(
             SubscribeQuery::stream("test/user"),
             SubscriptionMode::PostCommit { queue_size: 8 },
-            FnHandler(move |_| { count2.fetch_add(1, Ordering::Relaxed); }),
+            FnHandler(move |_| {
+                count2.fetch_add(1, Ordering::Relaxed);
+            }),
         )
         .unwrap();
 
@@ -615,7 +626,9 @@ fn glob_star_receives_multiple_matching_streams() {
                 include_system: false,
             },
             SubscriptionMode::PostCommit { queue_size: 16 },
-            FnHandler(move |_| { count2.fetch_add(1, Ordering::Relaxed); }),
+            FnHandler(move |_| {
+                count2.fetch_add(1, Ordering::Relaxed);
+            }),
         )
         .unwrap();
 
@@ -654,7 +667,9 @@ fn glob_double_star_receives_all_matching_streams() {
                 include_system: false,
             },
             SubscriptionMode::PostCommit { queue_size: 16 },
-            FnHandler(move |_| { count2.fetch_add(1, Ordering::Relaxed); }),
+            FnHandler(move |_| {
+                count2.fetch_add(1, Ordering::Relaxed);
+            }),
         )
         .unwrap();
 
@@ -691,7 +706,9 @@ fn include_system_false_blocks_system_stream_on_glob() {
                 include_system: false,
             },
             SubscriptionMode::PostCommit { queue_size: 8 },
-            FnHandler(move |_| { count2.fetch_add(1, Ordering::Relaxed); }),
+            FnHandler(move |_| {
+                count2.fetch_add(1, Ordering::Relaxed);
+            }),
         )
         .unwrap();
 
@@ -786,7 +803,9 @@ fn glob_sub_receives_events_on_new_stream_created_after_subscription() {
                 include_system: false,
             },
             SubscriptionMode::PostCommit { queue_size: 16 },
-            FnHandler(move |_| { count2.fetch_add(1, Ordering::Relaxed); }),
+            FnHandler(move |_| {
+                count2.fetch_add(1, Ordering::Relaxed);
+            }),
         )
         .unwrap();
 
@@ -841,7 +860,10 @@ fn sync_panic_subscriber_marked_degraded() {
 
     store.append(unique_ev("panic/deg")).unwrap();
 
-    assert!(handle.is_degraded(), "sync-panicking subscriber must be degraded after append");
+    assert!(
+        handle.is_degraded(),
+        "sync-panicking subscriber must be degraded after append"
+    );
 }
 
 #[test]
@@ -862,7 +884,9 @@ fn sync_panic_does_not_block_other_subscribers() {
         .subscribe(
             SubscribeQuery::stream("panic/other"),
             SubscriptionMode::Synchronous,
-            NormalCountHandler { count: Arc::clone(&count) },
+            NormalCountHandler {
+                count: Arc::clone(&count),
+            },
         )
         .unwrap();
 

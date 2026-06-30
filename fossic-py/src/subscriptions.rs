@@ -42,7 +42,10 @@ pub struct PyRawSubscriptionHandle {
 
 impl PyRawSubscriptionHandle {
     pub fn new(rx: cc::Receiver<StoredEvent>, handle: SubscriptionHandle) -> Self {
-        PyRawSubscriptionHandle { rx, handle: Some(handle) }
+        PyRawSubscriptionHandle {
+            rx,
+            handle: Some(handle),
+        }
     }
 }
 
@@ -69,7 +72,9 @@ impl PyRawSubscriptionHandle {
             Err(cc::RecvTimeoutError::Timeout) => Ok(None),
             Err(cc::RecvTimeoutError::Disconnected) => {
                 // Channel closed (subscription removed / store dropped).
-                Err(pyo3::exceptions::PyStopIteration::new_err("subscription closed"))
+                Err(pyo3::exceptions::PyStopIteration::new_err(
+                    "subscription closed",
+                ))
             }
         }
     }

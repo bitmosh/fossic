@@ -1,5 +1,5 @@
-use fossic::{Append, OpenOptions, Store, SubscribeQuery, SubscriptionHandler, SubscriptionMode};
 use fossic::StoredEvent;
+use fossic::{Append, OpenOptions, Store, SubscribeQuery, SubscriptionHandler, SubscriptionMode};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,

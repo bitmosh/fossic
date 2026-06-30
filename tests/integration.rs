@@ -2,8 +2,8 @@ use fossic::{Append, EventId, OpenOptions, ReadQuery, Store};
 
 fn open_tmp() -> (Store, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let store = Store::open(dir.path().join("test.db"), OpenOptions::default())
-        .expect("open store");
+    let store =
+        Store::open(dir.path().join("test.db"), OpenOptions::default()).expect("open store");
     (store, dir)
 }
 
@@ -43,7 +43,9 @@ fn open_twice_same_path() {
 #[test]
 fn declare_stream_and_check() {
     let (store, _dir) = open_tmp();
-    store.declare_stream("test/events/s1", "integration-test", None).unwrap();
+    store
+        .declare_stream("test/events/s1", "integration-test", None)
+        .unwrap();
     assert!(store.stream_exists("test/events/s1").unwrap());
     assert!(!store.stream_exists("test/events/s2").unwrap());
 }
@@ -87,7 +89,10 @@ fn append_to_undeclared_stream_fails() {
         payload: serde_json::json!({"x": 1}),
         ..Default::default()
     });
-    assert!(matches!(result, Err(fossic::Error::StreamNotDeclared { .. })));
+    assert!(matches!(
+        result,
+        Err(fossic::Error::StreamNotDeclared { .. })
+    ));
 }
 
 #[test]
@@ -131,18 +136,22 @@ fn append_idempotent() {
 fn different_payloads_produce_different_ids() {
     let (store, _dir) = open_tmp();
     store.declare_stream("test/s", "t", None).unwrap();
-    let id1 = store.append(Append {
-        stream_id: "test/s".to_string(),
-        event_type: "E".to_string(),
-        payload: serde_json::json!({"x": 1}),
-        ..Default::default()
-    }).unwrap();
-    let id2 = store.append(Append {
-        stream_id: "test/s".to_string(),
-        event_type: "E".to_string(),
-        payload: serde_json::json!({"x": 2}),
-        ..Default::default()
-    }).unwrap();
+    let id1 = store
+        .append(Append {
+            stream_id: "test/s".to_string(),
+            event_type: "E".to_string(),
+            payload: serde_json::json!({"x": 1}),
+            ..Default::default()
+        })
+        .unwrap();
+    let id2 = store
+        .append(Append {
+            stream_id: "test/s".to_string(),
+            event_type: "E".to_string(),
+            payload: serde_json::json!({"x": 2}),
+            ..Default::default()
+        })
+        .unwrap();
     assert_ne!(id1, id2);
 }
 
@@ -150,27 +159,33 @@ fn different_payloads_produce_different_ids() {
 fn causation_changes_event_id() {
     let (store, _dir) = open_tmp();
     store.declare_stream("test/s", "t", None).unwrap();
-    let cause_id = store.append(Append {
-        stream_id: "test/s".to_string(),
-        event_type: "Root".to_string(),
-        payload: serde_json::json!({}),
-        ..Default::default()
-    }).unwrap();
+    let cause_id = store
+        .append(Append {
+            stream_id: "test/s".to_string(),
+            event_type: "Root".to_string(),
+            payload: serde_json::json!({}),
+            ..Default::default()
+        })
+        .unwrap();
 
-    let no_cause = store.append(Append {
-        stream_id: "test/s".to_string(),
-        event_type: "Child".to_string(),
-        payload: serde_json::json!({"x": 1}),
-        ..Default::default()
-    }).unwrap();
+    let no_cause = store
+        .append(Append {
+            stream_id: "test/s".to_string(),
+            event_type: "Child".to_string(),
+            payload: serde_json::json!({"x": 1}),
+            ..Default::default()
+        })
+        .unwrap();
 
-    let with_cause = store.append(Append {
-        stream_id: "test/s".to_string(),
-        event_type: "Child".to_string(),
-        payload: serde_json::json!({"x": 1}),
-        causation_id: Some(cause_id),
-        ..Default::default()
-    }).unwrap();
+    let with_cause = store
+        .append(Append {
+            stream_id: "test/s".to_string(),
+            event_type: "Child".to_string(),
+            payload: serde_json::json!({"x": 1}),
+            causation_id: Some(cause_id),
+            ..Default::default()
+        })
+        .unwrap();
 
     assert_ne!(no_cause, with_cause);
 }
@@ -225,12 +240,14 @@ fn read_range_returns_events_in_version_order() {
     let (store, _dir) = open_tmp();
     store.declare_stream("test/s", "t", None).unwrap();
     for i in 0..5u64 {
-        store.append(Append {
-            stream_id: "test/s".to_string(),
-            event_type: "E".to_string(),
-            payload: serde_json::json!({"i": i}),
-            ..Default::default()
-        }).unwrap();
+        store
+            .append(Append {
+                stream_id: "test/s".to_string(),
+                event_type: "E".to_string(),
+                payload: serde_json::json!({"i": i}),
+                ..Default::default()
+            })
+            .unwrap();
     }
     let events = store.read_range(ReadQuery::stream("test/s")).unwrap();
     assert_eq!(events.len(), 5);
@@ -245,21 +262,25 @@ fn read_range_with_from_version() {
     let (store, _dir) = open_tmp();
     store.declare_stream("test/s", "t", None).unwrap();
     for i in 0..10u64 {
-        store.append(Append {
-            stream_id: "test/s".to_string(),
-            event_type: "E".to_string(),
-            payload: serde_json::json!({"i": i}),
-            ..Default::default()
-        }).unwrap();
+        store
+            .append(Append {
+                stream_id: "test/s".to_string(),
+                event_type: "E".to_string(),
+                payload: serde_json::json!({"i": i}),
+                ..Default::default()
+            })
+            .unwrap();
     }
-    let events = store.read_range(ReadQuery {
-        stream_id: "test/s".to_string(),
-        branch: "main".to_string(),
-        from_version: Some(5),
-        to_version: None,
-        limit: None,
-        event_type_filter: None,
-    }).unwrap();
+    let events = store
+        .read_range(ReadQuery {
+            stream_id: "test/s".to_string(),
+            branch: "main".to_string(),
+            from_version: Some(5),
+            to_version: None,
+            limit: None,
+            event_type_filter: None,
+        })
+        .unwrap();
     assert_eq!(events.len(), 5);
     assert_eq!(events[0].version, 5);
     assert_eq!(events[4].version, 9);
@@ -270,21 +291,25 @@ fn read_range_with_limit() {
     let (store, _dir) = open_tmp();
     store.declare_stream("test/s", "t", None).unwrap();
     for i in 0..10u64 {
-        store.append(Append {
-            stream_id: "test/s".to_string(),
-            event_type: "E".to_string(),
-            payload: serde_json::json!({"i": i}),
-            ..Default::default()
-        }).unwrap();
+        store
+            .append(Append {
+                stream_id: "test/s".to_string(),
+                event_type: "E".to_string(),
+                payload: serde_json::json!({"i": i}),
+                ..Default::default()
+            })
+            .unwrap();
     }
-    let events = store.read_range(ReadQuery {
-        stream_id: "test/s".to_string(),
-        branch: "main".to_string(),
-        from_version: None,
-        to_version: None,
-        limit: Some(3),
-        event_type_filter: None,
-    }).unwrap();
+    let events = store
+        .read_range(ReadQuery {
+            stream_id: "test/s".to_string(),
+            branch: "main".to_string(),
+            from_version: None,
+            to_version: None,
+            limit: Some(3),
+            event_type_filter: None,
+        })
+        .unwrap();
     assert_eq!(events.len(), 3);
 }
 
@@ -292,12 +317,14 @@ fn read_range_with_limit() {
 fn read_one_by_event_id() {
     let (store, _dir) = open_tmp();
     store.declare_stream("test/s", "t", None).unwrap();
-    let id = store.append(Append {
-        stream_id: "test/s".to_string(),
-        event_type: "TargetEvent".to_string(),
-        payload: serde_json::json!({"secret": "xyzzy"}),
-        ..Default::default()
-    }).unwrap();
+    let id = store
+        .append(Append {
+            stream_id: "test/s".to_string(),
+            event_type: "TargetEvent".to_string(),
+            payload: serde_json::json!({"secret": "xyzzy"}),
+            ..Default::default()
+        })
+        .unwrap();
 
     let found = store.read_one(id).unwrap();
     assert!(found.is_some());
@@ -320,13 +347,15 @@ fn read_one_missing_returns_none() {
 fn read_by_external_id() {
     let (store, _dir) = open_tmp();
     store.declare_stream("test/s", "t", None).unwrap();
-    store.append(Append {
-        stream_id: "test/s".to_string(),
-        event_type: "E".to_string(),
-        payload: serde_json::json!({"v": 1}),
-        external_id: Some("ext-001".to_string()),
-        ..Default::default()
-    }).unwrap();
+    store
+        .append(Append {
+            stream_id: "test/s".to_string(),
+            event_type: "E".to_string(),
+            payload: serde_json::json!({"v": 1}),
+            external_id: Some("ext-001".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
 
     let found = store.read_by_external_id("test/s", "ext-001").unwrap();
     assert!(found.is_some());
@@ -349,12 +378,14 @@ fn payload_round_trip_json() {
         "array": [1, 2, 3],
         "nested": {"a": 1}
     });
-    let id = store.append(Append {
-        stream_id: "test/s".to_string(),
-        event_type: "RichEvent".to_string(),
-        payload: payload.clone(),
-        ..Default::default()
-    }).unwrap();
+    let id = store
+        .append(Append {
+            stream_id: "test/s".to_string(),
+            event_type: "RichEvent".to_string(),
+            payload: payload.clone(),
+            ..Default::default()
+        })
+        .unwrap();
 
     let ev = store.read_one(id).unwrap().unwrap();
     let decoded: serde_json::Value = ev.deserialize_payload_json().unwrap();
@@ -369,13 +400,15 @@ fn payload_round_trip_json() {
 fn indexed_tags_round_trip() {
     let (store, _dir) = open_tmp();
     store.declare_stream("test/s", "t", None).unwrap();
-    let id = store.append(Append {
-        stream_id: "test/s".to_string(),
-        event_type: "E".to_string(),
-        payload: serde_json::json!({}),
-        indexed_tags: Some(serde_json::json!({"category": "audit", "priority": 1})),
-        ..Default::default()
-    }).unwrap();
+    let id = store
+        .append(Append {
+            stream_id: "test/s".to_string(),
+            event_type: "E".to_string(),
+            payload: serde_json::json!({}),
+            indexed_tags: Some(serde_json::json!({"category": "audit", "priority": 1})),
+            ..Default::default()
+        })
+        .unwrap();
 
     let ev = store.read_one(id).unwrap().unwrap();
     let tags = ev.indexed_tags.unwrap();
@@ -388,19 +421,24 @@ fn version_monotonically_increases() {
     let (store, _dir) = open_tmp();
     store.declare_stream("test/s", "t", None).unwrap();
     for i in 0..10u64 {
-        store.append(Append {
-            stream_id: "test/s".to_string(),
-            event_type: "E".to_string(),
-            // distinct payload per iteration so IDs differ (no dedup)
-            payload: serde_json::json!({"seq": i}),
-            ..Default::default()
-        }).unwrap();
+        store
+            .append(Append {
+                stream_id: "test/s".to_string(),
+                event_type: "E".to_string(),
+                // distinct payload per iteration so IDs differ (no dedup)
+                payload: serde_json::json!({"seq": i}),
+                ..Default::default()
+            })
+            .unwrap();
     }
     let events = store.read_range(ReadQuery::stream("test/s")).unwrap();
     let versions: Vec<u64> = events.iter().map(|e| e.version).collect();
     let mut sorted = versions.clone();
     sorted.sort();
-    assert_eq!(versions, sorted, "versions must be monotonically increasing");
+    assert_eq!(
+        versions, sorted,
+        "versions must be monotonically increasing"
+    );
     assert_eq!(versions[0], 0);
     assert_eq!(versions[9], 9);
 }
@@ -412,8 +450,22 @@ fn read_range_event_type_filter_returns_matching() {
     let (store, _dir) = open_tmp();
     store.declare_stream("test/s", "t", None).unwrap();
     for i in 0..3u32 {
-        store.append(Append { stream_id: "test/s".to_string(), event_type: "Alpha".to_string(), payload: serde_json::json!({"i": i}), ..Default::default() }).unwrap();
-        store.append(Append { stream_id: "test/s".to_string(), event_type: "Beta".to_string(), payload: serde_json::json!({"i": i}), ..Default::default() }).unwrap();
+        store
+            .append(Append {
+                stream_id: "test/s".to_string(),
+                event_type: "Alpha".to_string(),
+                payload: serde_json::json!({"i": i}),
+                ..Default::default()
+            })
+            .unwrap();
+        store
+            .append(Append {
+                stream_id: "test/s".to_string(),
+                event_type: "Beta".to_string(),
+                payload: serde_json::json!({"i": i}),
+                ..Default::default()
+            })
+            .unwrap();
     }
     let mut q = ReadQuery::stream("test/s");
     q.event_type_filter = Some("Alpha".to_string());
@@ -426,7 +478,14 @@ fn read_range_event_type_filter_returns_matching() {
 fn read_range_event_type_filter_no_match_returns_empty() {
     let (store, _dir) = open_tmp();
     store.declare_stream("test/s", "t", None).unwrap();
-    store.append(Append { stream_id: "test/s".to_string(), event_type: "Alpha".to_string(), payload: serde_json::json!({"i": 0}), ..Default::default() }).unwrap();
+    store
+        .append(Append {
+            stream_id: "test/s".to_string(),
+            event_type: "Alpha".to_string(),
+            payload: serde_json::json!({"i": 0}),
+            ..Default::default()
+        })
+        .unwrap();
     let mut q = ReadQuery::stream("test/s");
     q.event_type_filter = Some("NoSuchType".to_string());
     let events = store.read_range(q).unwrap();
@@ -438,7 +497,14 @@ fn read_range_event_type_filter_combined_with_from_version() {
     let (store, _dir) = open_tmp();
     store.declare_stream("test/s", "t", None).unwrap();
     for i in 0..5u32 {
-        store.append(Append { stream_id: "test/s".to_string(), event_type: "Alpha".to_string(), payload: serde_json::json!({"i": i}), ..Default::default() }).unwrap();
+        store
+            .append(Append {
+                stream_id: "test/s".to_string(),
+                event_type: "Alpha".to_string(),
+                payload: serde_json::json!({"i": i}),
+                ..Default::default()
+            })
+            .unwrap();
     }
     // versions 0–4; ask from_version=2 and filter Alpha
     let mut q = ReadQuery::stream("test/s");
@@ -454,8 +520,22 @@ fn read_range_event_type_filter_limit_applied_after_filter() {
     let (store, _dir) = open_tmp();
     store.declare_stream("test/s", "t", None).unwrap();
     for i in 0..10u32 {
-        store.append(Append { stream_id: "test/s".to_string(), event_type: "Alpha".to_string(), payload: serde_json::json!({"i": i}), ..Default::default() }).unwrap();
-        store.append(Append { stream_id: "test/s".to_string(), event_type: "Beta".to_string(), payload: serde_json::json!({"i": i}), ..Default::default() }).unwrap();
+        store
+            .append(Append {
+                stream_id: "test/s".to_string(),
+                event_type: "Alpha".to_string(),
+                payload: serde_json::json!({"i": i}),
+                ..Default::default()
+            })
+            .unwrap();
+        store
+            .append(Append {
+                stream_id: "test/s".to_string(),
+                event_type: "Beta".to_string(),
+                payload: serde_json::json!({"i": i}),
+                ..Default::default()
+            })
+            .unwrap();
     }
     let mut q = ReadQuery::stream("test/s");
     q.event_type_filter = Some("Alpha".to_string());
@@ -470,8 +550,22 @@ fn read_range_event_type_filter_none_returns_all() {
     let (store, _dir) = open_tmp();
     store.declare_stream("test/s", "t", None).unwrap();
     for i in 0..3u32 {
-        store.append(Append { stream_id: "test/s".to_string(), event_type: "Alpha".to_string(), payload: serde_json::json!({"i": i}), ..Default::default() }).unwrap();
-        store.append(Append { stream_id: "test/s".to_string(), event_type: "Beta".to_string(), payload: serde_json::json!({"i": i}), ..Default::default() }).unwrap();
+        store
+            .append(Append {
+                stream_id: "test/s".to_string(),
+                event_type: "Alpha".to_string(),
+                payload: serde_json::json!({"i": i}),
+                ..Default::default()
+            })
+            .unwrap();
+        store
+            .append(Append {
+                stream_id: "test/s".to_string(),
+                event_type: "Beta".to_string(),
+                payload: serde_json::json!({"i": i}),
+                ..Default::default()
+            })
+            .unwrap();
     }
     let q = ReadQuery::stream("test/s");
     // event_type_filter is None by default

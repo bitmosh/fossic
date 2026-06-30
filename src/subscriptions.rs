@@ -251,7 +251,13 @@ impl SubscriptionRegistry {
                 if entry.degraded.load(Ordering::Acquire) {
                     continue;
                 }
-                if let SubscriberKind::PostCommit { ref tx, wal_cursor, ref stream_cursors, .. } = entry.kind {
+                if let SubscriberKind::PostCommit {
+                    ref tx,
+                    wal_cursor,
+                    ref stream_cursors,
+                    ..
+                } = entry.kind
+                {
                     let is_exact = !entry.stream_pattern.contains('*');
                     let effective_cursor = if is_exact {
                         wal_cursor
@@ -339,7 +345,12 @@ impl SubscriptionRegistry {
             if entry.degraded.load(Ordering::Acquire) {
                 continue;
             }
-            if let SubscriberKind::PostCommit { ref wal_cursor, ref stream_cursors, .. } = entry.kind {
+            if let SubscriberKind::PostCommit {
+                ref wal_cursor,
+                ref stream_cursors,
+                ..
+            } = entry.kind
+            {
                 let is_exact = !entry.stream_pattern.contains('*');
                 let cursor = if is_exact {
                     *wal_cursor
@@ -348,7 +359,12 @@ impl SubscriptionRegistry {
                 } else {
                     *stream_cursors.values().min().unwrap()
                 };
-                result.push((*id, entry.stream_pattern.clone(), entry.branch.clone(), cursor));
+                result.push((
+                    *id,
+                    entry.stream_pattern.clone(),
+                    entry.branch.clone(),
+                    cursor,
+                ));
             }
         }
         result

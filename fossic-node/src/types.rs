@@ -385,7 +385,11 @@ impl ReadOutcomeJs {
                 reason: None,
                 next_cursor: None,
             },
-            ReadOutcome::Truncated { data, cursor, reason } => ReadOutcomeJs {
+            ReadOutcome::Truncated {
+                data,
+                cursor,
+                reason,
+            } => ReadOutcomeJs {
                 kind: "truncated".into(),
                 results: data.iter().map(StoredEventJs::from).collect(),
                 reason: Some(match reason {

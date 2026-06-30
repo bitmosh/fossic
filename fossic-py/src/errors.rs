@@ -52,23 +52,71 @@ pub fn to_py_err(e: FossicError) -> PyErr {
 /// Register all exception types on the Python module.
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("FossicError", m.py().get_type::<FossicBaseError>())?;
-    m.add("StreamNotDeclaredError", m.py().get_type::<StreamNotDeclaredError>())?;
-    m.add("InvalidStreamIdError", m.py().get_type::<InvalidStreamIdError>())?;
-    m.add("InvalidEventIdError", m.py().get_type::<InvalidEventIdError>())?;
-    m.add("StoreNotFoundError", m.py().get_type::<StoreNotFoundError>())?;
-    m.add("SchemaMismatchError", m.py().get_type::<SchemaMismatchError>())?;
-    m.add("NotImplementedError", m.py().get_type::<NotImplementedError>())?;
-    m.add("BranchNotFoundError", m.py().get_type::<BranchNotFoundError>())?;
-    m.add("BranchLifecycleError", m.py().get_type::<BranchLifecycleError>())?;
-    m.add("InvalidBranchIdError", m.py().get_type::<InvalidBranchIdError>())?;
-    m.add("ReducerPatternAmbiguousError", m.py().get_type::<ReducerPatternAmbiguousError>())?;
-    m.add("ReducerNotFoundError", m.py().get_type::<ReducerNotFoundError>())?;
-    m.add("ReducerNotFoundByNameError", m.py().get_type::<ReducerNotFoundByNameError>())?;
+    m.add(
+        "StreamNotDeclaredError",
+        m.py().get_type::<StreamNotDeclaredError>(),
+    )?;
+    m.add(
+        "InvalidStreamIdError",
+        m.py().get_type::<InvalidStreamIdError>(),
+    )?;
+    m.add(
+        "InvalidEventIdError",
+        m.py().get_type::<InvalidEventIdError>(),
+    )?;
+    m.add(
+        "StoreNotFoundError",
+        m.py().get_type::<StoreNotFoundError>(),
+    )?;
+    m.add(
+        "SchemaMismatchError",
+        m.py().get_type::<SchemaMismatchError>(),
+    )?;
+    m.add(
+        "NotImplementedError",
+        m.py().get_type::<NotImplementedError>(),
+    )?;
+    m.add(
+        "BranchNotFoundError",
+        m.py().get_type::<BranchNotFoundError>(),
+    )?;
+    m.add(
+        "BranchLifecycleError",
+        m.py().get_type::<BranchLifecycleError>(),
+    )?;
+    m.add(
+        "InvalidBranchIdError",
+        m.py().get_type::<InvalidBranchIdError>(),
+    )?;
+    m.add(
+        "ReducerPatternAmbiguousError",
+        m.py().get_type::<ReducerPatternAmbiguousError>(),
+    )?;
+    m.add(
+        "ReducerNotFoundError",
+        m.py().get_type::<ReducerNotFoundError>(),
+    )?;
+    m.add(
+        "ReducerNotFoundByNameError",
+        m.py().get_type::<ReducerNotFoundByNameError>(),
+    )?;
     m.add("ReducerCallError", m.py().get_type::<ReducerCallError>())?;
-    m.add("NoEventsToSnapshotError", m.py().get_type::<NoEventsToSnapshotError>())?;
-    m.add("PurgeConfirmationError", m.py().get_type::<PurgeConfirmationError>())?;
-    m.add("EventNotFoundError", m.py().get_type::<EventNotFoundError>())?;
-    m.add("UpcasterChainGapError", m.py().get_type::<UpcasterChainGapError>())?;
+    m.add(
+        "NoEventsToSnapshotError",
+        m.py().get_type::<NoEventsToSnapshotError>(),
+    )?;
+    m.add(
+        "PurgeConfirmationError",
+        m.py().get_type::<PurgeConfirmationError>(),
+    )?;
+    m.add(
+        "EventNotFoundError",
+        m.py().get_type::<EventNotFoundError>(),
+    )?;
+    m.add(
+        "UpcasterChainGapError",
+        m.py().get_type::<UpcasterChainGapError>(),
+    )?;
     m.add("StorageError", m.py().get_type::<StorageError>())?;
     Ok(())
 }

@@ -73,16 +73,12 @@ fn multiple_stars() {
 
 #[test]
 fn specificity_exact_higher_than_single_star() {
-    assert!(
-        specificity_score("cerebra/lattice/abc") > specificity_score("cerebra/lattice/*")
-    );
+    assert!(specificity_score("cerebra/lattice/abc") > specificity_score("cerebra/lattice/*"));
 }
 
 #[test]
 fn specificity_longer_prefix_wins() {
-    assert!(
-        specificity_score("cerebra/lattice/*") > specificity_score("cerebra/*")
-    );
+    assert!(specificity_score("cerebra/lattice/*") > specificity_score("cerebra/*"));
 }
 
 #[test]

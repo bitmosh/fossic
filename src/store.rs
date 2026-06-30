@@ -1,3 +1,5 @@
+use crate::system_stream::SystemStreamWriter;
+use parking_lot::RwLock as ParkingRwLock;
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
     path::{Path, PathBuf},
@@ -6,8 +8,6 @@ use std::{
         Arc, Mutex, MutexGuard, RwLock,
     },
 };
-use parking_lot::RwLock as ParkingRwLock;
-use crate::system_stream::SystemStreamWriter;
 
 use rusqlite::Connection;
 
@@ -25,7 +25,10 @@ use crate::{
     cursors::{get_cursor_impl, set_cursor_impl},
     deletion::{purge_event_impl, shred_stream_impl},
     error::Error,
-    read::{read_batch_impl, read_by_external_id_impl, read_one_impl, read_range_bounded_impl, read_range_impl},
+    read::{
+        read_batch_impl, read_by_external_id_impl, read_one_impl, read_range_bounded_impl,
+        read_range_impl,
+    },
     reducers::{BoxedReducer, DynReducer, Reducer, ReducerRegistry, ReducerState},
     schema::{bootstrap_meta, bootstrap_system_streams, run_migrations},
     snapshots::{
@@ -243,30 +246,31 @@ impl Store {
         bootstrap_system_streams(&conn)?;
 
         let sub_registry = SubscriptionRegistry::new();
-        let (dispatch_tx, dispatch_rx) =
-            crossbeam_channel::unbounded::<StoredEvent>();
+        let (dispatch_tx, dispatch_rx) = crossbeam_channel::unbounded::<StoredEvent>();
         let dispatch_hwm = Arc::new(AtomicUsize::new(0));
 
         let quiescence = Arc::new(crate::executor::QuiescenceMonitor::new());
         let (sync_degraded_tx, sync_degraded_rx) =
             crossbeam_channel::unbounded::<(u64, String, String, u64)>();
-        start_dispatcher(path.clone(), dispatch_rx, sync_degraded_rx, Arc::clone(&sub_registry), Arc::clone(&quiescence));
-
-        let wal_watcher = WalWatcher::start(
+        start_dispatcher(
             path.clone(),
-            dispatch_tx.clone(),
+            dispatch_rx,
+            sync_degraded_rx,
             Arc::clone(&sub_registry),
-        )
-        .map_err(|e| {
-            eprintln!("[WARN fossic] WAL watcher failed to start: {e}");
-        })
-        .ok();
+            Arc::clone(&quiescence),
+        );
+
+        let wal_watcher =
+            WalWatcher::start(path.clone(), dispatch_tx.clone(), Arc::clone(&sub_registry))
+                .map_err(|e| {
+                    eprintln!("[WARN fossic] WAL watcher failed to start: {e}");
+                })
+                .ok();
 
         let similarity_provider = options.similarity_provider.clone();
 
         let pool_size = options.read_pool_size.max(1);
-        let (read_pool_tx, read_pool_rx) =
-            crossbeam_channel::bounded::<Connection>(pool_size);
+        let (read_pool_tx, read_pool_rx) = crossbeam_channel::bounded::<Connection>(pool_size);
         for _ in 0..pool_size {
             let rc = Connection::open(&path)?;
             rc.execute_batch(
@@ -279,7 +283,8 @@ impl Store {
                 .map_err(|_| Error::Internal("read pool send failed during init".into()))?;
         }
 
-        let grace_timeout = std::time::Duration::from_millis(options.background_executor_grace_timeout_ms);
+        let grace_timeout =
+            std::time::Duration::from_millis(options.background_executor_grace_timeout_ms);
         let quiescence_window_us = options.executor_quiescence_window_ms as i64 * 1_000;
         let store_open_us = crate::schema::now_us();
 
@@ -386,8 +391,7 @@ impl Store {
 
         let (event_id, post_commit, sync_degraded) = {
             let mut conn = self.lock()?;
-            let outcome: AppendOutcome =
-                append_impl(&mut conn, &a, payload_val, payload_bytes)?;
+            let outcome: AppendOutcome = append_impl(&mut conn, &a, payload_val, payload_bytes)?;
 
             let (stored, degraded_ids) = if outcome.is_new && has_subs && !is_system {
                 let s = build_stored_event(&outcome, &a);
@@ -404,12 +408,19 @@ impl Store {
 
         if let Some(ref s) = post_commit {
             for sub_id in sync_degraded {
-                let _ = self.inner.sync_degraded_tx.send((sub_id, s.stream_id.clone(), s.branch.clone(), s.version));
+                let _ = self.inner.sync_degraded_tx.send((
+                    sub_id,
+                    s.stream_id.clone(),
+                    s.branch.clone(),
+                    s.version,
+                ));
             }
         }
         if let Some(s) = post_commit {
             let depth = self.inner.dispatch_tx.len() + 1;
-            self.inner.dispatch_channel_high_water_mark.fetch_max(depth, Ordering::Relaxed);
+            self.inner
+                .dispatch_channel_high_water_mark
+                .fetch_max(depth, Ordering::Relaxed);
             let _ = self.inner.dispatch_tx.send(s);
         }
 
@@ -442,7 +453,12 @@ impl Store {
                     let s = build_stored_event(outcome, a);
                     let newly_deg = self.inner.sub_registry.dispatch_sync(&s);
                     for sub_id in newly_deg {
-                        sync_degraded.push((sub_id, s.stream_id.clone(), s.branch.clone(), s.version));
+                        sync_degraded.push((
+                            sub_id,
+                            s.stream_id.clone(),
+                            s.branch.clone(),
+                            s.version,
+                        ));
                     }
                     post_commits.push(s);
                 }
@@ -456,12 +472,17 @@ impl Store {
         }
 
         for (sub_id, stream_id, branch, version) in sync_degraded {
-            let _ = self.inner.sync_degraded_tx.send((sub_id, stream_id, branch, version));
+            let _ = self
+                .inner
+                .sync_degraded_tx
+                .send((sub_id, stream_id, branch, version));
         }
 
         for s in post_commits {
             let depth = self.inner.dispatch_tx.len() + 1;
-            self.inner.dispatch_channel_high_water_mark.fetch_max(depth, Ordering::Relaxed);
+            self.inner
+                .dispatch_channel_high_water_mark
+                .fetch_max(depth, Ordering::Relaxed);
             let _ = self.inner.dispatch_tx.send(s);
         }
 
@@ -503,8 +524,7 @@ impl Store {
 
         let (event_id_opt, post_commit, sync_degraded) = {
             let mut conn = self.lock()?;
-            let outcome =
-                append_if_impl(&mut conn, &a, payload_val, payload_bytes, condition)?;
+            let outcome = append_if_impl(&mut conn, &a, payload_val, payload_bytes, condition)?;
 
             match outcome {
                 None => (None, None, Vec::new()),
@@ -527,12 +547,19 @@ impl Store {
 
         if let Some(ref s) = post_commit {
             for sub_id in sync_degraded {
-                let _ = self.inner.sync_degraded_tx.send((sub_id, s.stream_id.clone(), s.branch.clone(), s.version));
+                let _ = self.inner.sync_degraded_tx.send((
+                    sub_id,
+                    s.stream_id.clone(),
+                    s.branch.clone(),
+                    s.version,
+                ));
             }
         }
         if let Some(s) = post_commit {
             let depth = self.inner.dispatch_tx.len() + 1;
-            self.inner.dispatch_channel_high_water_mark.fetch_max(depth, Ordering::Relaxed);
+            self.inner
+                .dispatch_channel_high_water_mark
+                .fetch_max(depth, Ordering::Relaxed);
             let _ = self.inner.dispatch_tx.send(s);
         }
 
@@ -587,10 +614,13 @@ impl Store {
         };
 
         let handler_arc: Arc<dyn SubscriptionHandler> = Arc::new(handler);
-        let (id, degraded) =
-            self.inner
-                .sub_registry
-                .subscribe(q, mode, initial_cursor, initial_stream_cursors, handler_arc);
+        let (id, degraded) = self.inner.sub_registry.subscribe(
+            q,
+            mode,
+            initial_cursor,
+            initial_stream_cursors,
+            handler_arc,
+        );
 
         Ok(SubscriptionHandle {
             id,
@@ -638,14 +668,24 @@ impl Store {
         let resume_version = match resume {
             Some(cursor) => match cursor.decode()? {
                 CursorInner::Range { next_version, .. } => Some(next_version),
-                _ => return Err(Error::Internal("cursor type mismatch: expected Range".into())),
+                _ => {
+                    return Err(Error::Internal(
+                        "cursor type mismatch: expected Range".into(),
+                    ))
+                }
             },
             None => None,
         };
 
         let outcome = {
             let conn = self.read_conn()?;
-            read_range_bounded_impl(&conn, &q, resume_version, effective_results, effective_bytes)?
+            read_range_bounded_impl(
+                &conn,
+                &q,
+                resume_version,
+                effective_results,
+                effective_bytes,
+            )?
         };
 
         let upcasters = self
@@ -661,7 +701,11 @@ impl Store {
                     .map(|e| apply_upcaster(&upcasters, e))
                     .collect::<Result<Vec<_>, _>>()?,
             )),
-            ReadOutcome::Truncated { data, cursor, reason } => Ok(ReadOutcome::Truncated {
+            ReadOutcome::Truncated {
+                data,
+                cursor,
+                reason,
+            } => Ok(ReadOutcome::Truncated {
                 data: data
                     .into_iter()
                     .map(|e| apply_upcaster(&upcasters, e))
@@ -740,10 +784,7 @@ impl Store {
 
     // ── Cross-stream queries ──────────────────────────────────────────────────
 
-    pub fn read_by_correlation(
-        &self,
-        correlation_id: EventId,
-    ) -> Result<Vec<StoredEvent>, Error> {
+    pub fn read_by_correlation(&self, correlation_id: EventId) -> Result<Vec<StoredEvent>, Error> {
         let events = {
             let conn = self.read_conn()?;
             read_by_correlation_impl(&conn, correlation_id)?
@@ -813,7 +854,11 @@ impl Store {
                     .map(|e| apply_upcaster(&upcasters, e))
                     .collect::<Result<Vec<_>, _>>()?,
             )),
-            ReadOutcome::Truncated { data, cursor, reason } => Ok(ReadOutcome::Truncated {
+            ReadOutcome::Truncated {
+                data,
+                cursor,
+                reason,
+            } => Ok(ReadOutcome::Truncated {
                 data: data
                     .into_iter()
                     .map(|e| apply_upcaster(&upcasters, e))
@@ -858,6 +903,7 @@ impl Store {
     /// - `Adaptive { target_count }` — computes `max_per_level = max(1, target_count / max_depth)`
     ///
     /// Pass `resume` from a previous `ReadOutcome::Truncated` to continue a paged walk.
+    #[allow(clippy::too_many_arguments)]
     pub fn walk_causation_bounded(
         &self,
         start: EventId,
@@ -873,7 +919,11 @@ impl Store {
 
         let resume_state = match resume {
             Some(cursor) => match cursor.decode()? {
-                CursorInner::Causation { frontier, direction: cursor_dir, depth_consumed } => {
+                CursorInner::Causation {
+                    frontier,
+                    direction: cursor_dir,
+                    depth_consumed,
+                } => {
                     let expected_dir: u8 = match &direction {
                         WalkDirection::Forward => 0,
                         WalkDirection::Backward => 1,
@@ -922,7 +972,11 @@ impl Store {
                     .map(|e| apply_upcaster(&upcasters, e))
                     .collect::<Result<Vec<_>, _>>()?,
             )),
-            ReadOutcome::Truncated { data, cursor, reason } => Ok(ReadOutcome::Truncated {
+            ReadOutcome::Truncated {
+                data,
+                cursor,
+                reason,
+            } => Ok(ReadOutcome::Truncated {
                 data: data
                     .into_iter()
                     .map(|e| apply_upcaster(&upcasters, e))
@@ -973,7 +1027,14 @@ impl Store {
             .read()
             .map_err(|_| Error::Internal("upcasters lock poisoned".into()))?;
         let conn = self.read_conn()?;
-        aggregate_bounded_impl(&conn, query, agg, &upcasters, effective_events, effective_bytes)
+        aggregate_bounded_impl(
+            &conn,
+            query,
+            agg,
+            &upcasters,
+            effective_events,
+            effective_bytes,
+        )
     }
 
     // ── Streaming Iterators ───────────────────────────────────────────────────
@@ -1188,11 +1249,7 @@ impl Store {
     /// Pattern syntax: `*` = one segment, `**` = any number of segments.
     /// Raises `ReducerPatternAmbiguous` if the new pattern conflicts with an
     /// existing registration at the same specificity level.
-    pub fn register_reducer<R: Reducer>(
-        &self,
-        pattern: &str,
-        reducer: R,
-    ) -> Result<(), Error> {
+    pub fn register_reducer<R: Reducer>(&self, pattern: &str, reducer: R) -> Result<(), Error> {
         let mut reg = self
             .inner
             .reducers
@@ -1202,7 +1259,11 @@ impl Store {
     }
 
     /// Register a DynReducer for the given glob pattern.
-    pub fn register_dyn_reducer(&self, pattern: &str, reducer: Box<dyn DynReducer>) -> Result<(), Error> {
+    pub fn register_dyn_reducer(
+        &self,
+        pattern: &str,
+        reducer: Box<dyn DynReducer>,
+    ) -> Result<(), Error> {
         let mut reg = self
             .inner
             .reducers
@@ -1254,18 +1315,10 @@ impl Store {
     /// Fold all events on `(stream_id, branch)` through the registered reducer
     /// and return the resulting state. Uses the most recent matching snapshot as a
     /// starting point, falling back to the initial state if none exists.
-    pub fn read_state<S: ReducerState>(
-        &self,
-        stream_id: &str,
-        branch: &str,
-    ) -> Result<S, Error> {
+    pub fn read_state<S: ReducerState>(&self, stream_id: &str, branch: &str) -> Result<S, Error> {
         let (reducer, policy) = self.get_reducer_with_policy(stream_id)?;
-        let (mut state_bytes, events) = self.compute_state_bytes(
-            &reducer,
-            stream_id,
-            branch,
-            None,
-        )?;
+        let (mut state_bytes, events) =
+            self.compute_state_bytes(&reducer, stream_id, branch, None)?;
         let events_applied = events.len() as u32;
         for event in &events {
             let t0 = crate::schema::now_us();
@@ -1286,12 +1339,8 @@ impl Store {
         version: u64,
     ) -> Result<S, Error> {
         let reducer = self.get_reducer(stream_id)?;
-        let (mut state_bytes, events) = self.compute_state_bytes(
-            &reducer,
-            stream_id,
-            branch,
-            Some(version),
-        )?;
+        let (mut state_bytes, events) =
+            self.compute_state_bytes(&reducer, stream_id, branch, Some(version))?;
         for event in &events {
             state_bytes = apply_reducer_guarded(&*reducer, &state_bytes, event, stream_id)?;
         }
@@ -1398,11 +1447,14 @@ impl Store {
                 last.version
             } else if prior_v.is_some() {
                 // No new events since last snapshot — return existing info.
-                return snapshot_info_impl(&conn, stream_id, branch, reducer.name())
-                    .map(|opt| opt.ok_or_else(|| Error::NoEventsToSnapshot {
-                        stream_id: stream_id.into(),
-                        branch: branch.into(),
-                    }))?;
+                return snapshot_info_impl(&conn, stream_id, branch, reducer.name()).map(
+                    |opt| {
+                        opt.ok_or_else(|| Error::NoEventsToSnapshot {
+                            stream_id: stream_id.into(),
+                            branch: branch.into(),
+                        })
+                    },
+                )?;
             } else {
                 return Err(Error::NoEventsToSnapshot {
                     stream_id: stream_id.into(),
@@ -1466,7 +1518,14 @@ impl Store {
         state_schema_version: u32,
     ) -> Result<Option<(u64, Vec<u8>)>, Error> {
         let conn = self.read_conn()?;
-        find_latest_snapshot(&conn, stream_id, branch, reducer_name, state_schema_version, None)
+        find_latest_snapshot(
+            &conn,
+            stream_id,
+            branch,
+            reducer_name,
+            state_schema_version,
+            None,
+        )
     }
 
     /// Write a snapshot row directly (used by foreign-language reducers that manage their own state).
@@ -1576,7 +1635,9 @@ impl Store {
     /// since this store instance was opened. Useful for tuning queue sizes and
     /// detecting back-pressure under high write load.
     pub fn dispatch_channel_high_water_mark(&self) -> usize {
-        self.inner.dispatch_channel_high_water_mark.load(Ordering::Relaxed)
+        self.inner
+            .dispatch_channel_high_water_mark
+            .load(Ordering::Relaxed)
     }
 
     /// Schedule a custom background task on this store's executor.
@@ -1609,7 +1670,10 @@ impl Store {
                 conn: Some(conn),
                 pool: self.inner.read_pool_tx.clone(),
             })
-            .map_err(|_| Error::PoolExhausted { pool_size, timeout_ms })
+            .map_err(|_| Error::PoolExhausted {
+                pool_size,
+                timeout_ms,
+            })
     }
 
     /// Acquire a read connection and hold it for `hold_ms` milliseconds, then release.
@@ -1626,9 +1690,10 @@ impl Store {
             .reducers
             .read()
             .map_err(|_| Error::Internal("reducers lock poisoned".into()))?;
-        reg.find_arc(stream_id).ok_or_else(|| Error::ReducerNotFound {
-            stream_id: stream_id.into(),
-        })
+        reg.find_arc(stream_id)
+            .ok_or_else(|| Error::ReducerNotFound {
+                stream_id: stream_id.into(),
+            })
     }
 
     /// Look up the reducer Arc + its SnapshotPolicy for `stream_id`.
@@ -1641,9 +1706,10 @@ impl Store {
             .reducers
             .read()
             .map_err(|_| Error::Internal("reducers lock poisoned".into()))?;
-        reg.find_arc_with_policy(stream_id).ok_or_else(|| Error::ReducerNotFound {
-            stream_id: stream_id.into(),
-        })
+        reg.find_arc_with_policy(stream_id)
+            .ok_or_else(|| Error::ReducerNotFound {
+                stream_id: stream_id.into(),
+            })
     }
 
     /// Check whether the SnapshotPolicy for this (stream_id, branch) has fired;
@@ -1672,7 +1738,10 @@ impl Store {
                     false
                 }
             }
-            SnapshotPolicy::StateAdaptive { target_replay_cost_us, min_events_between } => {
+            SnapshotPolicy::StateAdaptive {
+                target_replay_cost_us,
+                min_events_between,
+            } => {
                 let accumulated = {
                     let mut counters = self.inner.snapshot_counters.write();
                     let key = (stream_id.to_string(), branch.to_string());
@@ -1861,8 +1930,7 @@ impl Store {
             .transforms
             .read()
             .map_err(|_| Error::Internal("transforms lock poisoned".into()))?;
-        let final_bytes =
-            apply_transforms(&transforms, stream_id, event_type, raw_bytes)?;
+        let final_bytes = apply_transforms(&transforms, stream_id, event_type, raw_bytes)?;
         // If no transforms matched the bytes are unchanged; decode for CCE.
         let final_value: serde_json::Value = rmp_serde::from_slice(&final_bytes)?;
         Ok((final_value, final_bytes))
@@ -1874,11 +1942,15 @@ impl Store {
 impl crate::executor::StoreOps for StoreInner {
     fn bg_gc_orphaned_snapshots(&self) -> Result<usize, crate::error::Error> {
         let keys = {
-            let reg = self.reducers.read()
+            let reg = self
+                .reducers
+                .read()
                 .map_err(|_| crate::error::Error::Internal("reducers lock poisoned".into()))?;
             reg.active_keys()
         };
-        let conn = self.conn.lock()
+        let conn = self
+            .conn
+            .lock()
             .map_err(|_| crate::error::Error::Internal("write conn lock poisoned".into()))?;
         gc_orphaned_snapshots_impl(&conn, &keys)
     }
@@ -1890,46 +1962,65 @@ impl crate::executor::StoreOps for StoreInner {
     ) -> Result<crate::types::SnapshotInfo, crate::error::Error> {
         // Replicates Store::take_snapshot using StoreInner's raw fields.
         let reducer = {
-            let reg = self.reducers.read()
+            let reg = self
+                .reducers
+                .read()
                 .map_err(|_| crate::error::Error::Internal("reducers lock poisoned".into()))?;
-            reg.find_arc(stream_id).ok_or_else(|| crate::error::Error::ReducerNotFound {
-                stream_id: stream_id.into(),
-            })?
+            reg.find_arc(stream_id)
+                .ok_or_else(|| crate::error::Error::ReducerNotFound {
+                    stream_id: stream_id.into(),
+                })?
         };
 
         let (snapshot_version, state_bytes, events) = {
-            let conn = self.read_pool_rx
-                .recv_timeout(std::time::Duration::from_millis(self.options.read_pool_timeout_ms))
-                .map(|c| ReadGuard { conn: Some(c), pool: self.read_pool_tx.clone() })
+            let conn = self
+                .read_pool_rx
+                .recv_timeout(std::time::Duration::from_millis(
+                    self.options.read_pool_timeout_ms,
+                ))
+                .map(|c| ReadGuard {
+                    conn: Some(c),
+                    pool: self.read_pool_tx.clone(),
+                })
                 .map_err(|_| crate::error::Error::PoolExhausted {
                     pool_size: self.options.read_pool_size.max(1),
                     timeout_ms: self.options.read_pool_timeout_ms,
                 })?;
 
             let snap = find_latest_snapshot(
-                &conn, stream_id, branch,
-                reducer.name(), reducer.state_schema_version(), None,
+                &conn,
+                stream_id,
+                branch,
+                reducer.name(),
+                reducer.state_schema_version(),
+                None,
             )?;
             let (start_v, bytes, prior_v) = match snap {
                 Some((v, b)) => (v + 1, b, Some(v)),
                 None => (0u64, reducer.initial_state_bytes()?, None),
             };
-            let evs = read_range_impl(&conn, ReadQuery {
-                stream_id: stream_id.to_string(),
-                branch: branch.to_string(),
-                from_version: Some(start_v),
-                to_version: None,
-                limit: None,
-                event_type_filter: None,
-            })?;
+            let evs = read_range_impl(
+                &conn,
+                ReadQuery {
+                    stream_id: stream_id.to_string(),
+                    branch: branch.to_string(),
+                    from_version: Some(start_v),
+                    to_version: None,
+                    limit: None,
+                    event_type_filter: None,
+                },
+            )?;
             let snap_ver = if let Some(last) = evs.last() {
                 last.version
             } else if prior_v.is_some() {
-                return snapshot_info_impl(&conn, stream_id, branch, reducer.name())
-                    .map(|opt| opt.ok_or_else(|| crate::error::Error::NoEventsToSnapshot {
-                        stream_id: stream_id.into(),
-                        branch: branch.into(),
-                    }))?;
+                return snapshot_info_impl(&conn, stream_id, branch, reducer.name()).map(
+                    |opt| {
+                        opt.ok_or_else(|| crate::error::Error::NoEventsToSnapshot {
+                            stream_id: stream_id.into(),
+                            branch: branch.into(),
+                        })
+                    },
+                )?;
             } else {
                 return Err(crate::error::Error::NoEventsToSnapshot {
                     stream_id: stream_id.into(),
@@ -1944,16 +2035,27 @@ impl crate::executor::StoreOps for StoreInner {
             state = apply_reducer_guarded(&*reducer, &state, event, stream_id)?;
         }
 
-        let conn = self.conn.lock()
+        let conn = self
+            .conn
+            .lock()
             .map_err(|_| crate::error::Error::Internal("store mutex poisoned".into()))?;
         let info = write_snapshot(
-            &conn, stream_id, branch, snapshot_version,
-            reducer.name(), reducer.version(), reducer.state_schema_version(), &state,
+            &conn,
+            stream_id,
+            branch,
+            snapshot_version,
+            reducer.name(),
+            reducer.version(),
+            reducer.state_schema_version(),
+            &state,
         )?;
 
         // Record snapshot timestamp for EveryNSeconds quiescence gate.
         let mut map = self.last_snapshot_us.write();
-        map.insert((stream_id.to_string(), branch.to_string()), crate::schema::now_us());
+        map.insert(
+            (stream_id.to_string(), branch.to_string()),
+            crate::schema::now_us(),
+        );
 
         Ok(info)
     }
@@ -1985,7 +2087,12 @@ pub struct RangeIter {
 impl RangeIter {
     fn fetch_batch(&mut self) -> Result<(), Error> {
         let resume = self.resume.take();
-        match self.store.read_range_bounded(self.query.clone(), Some(ITER_BATCH_SIZE), None, resume)? {
+        match self.store.read_range_bounded(
+            self.query.clone(),
+            Some(ITER_BATCH_SIZE),
+            None,
+            resume,
+        )? {
             ReadOutcome::Complete(events) => {
                 self.buffer.extend(events);
                 self.exhausted = true;
@@ -2036,7 +2143,12 @@ pub struct CorrelationIter {
 impl CorrelationIter {
     fn fetch_batch(&mut self) -> Result<(), Error> {
         let resume = self.resume.take();
-        match self.store.read_by_correlation_bounded(self.correlation_id, Some(ITER_BATCH_SIZE), None, resume)? {
+        match self.store.read_by_correlation_bounded(
+            self.correlation_id,
+            Some(ITER_BATCH_SIZE),
+            None,
+            resume,
+        )? {
             ReadOutcome::Complete(events) => {
                 self.buffer.extend(events);
                 self.exhausted = true;
@@ -2159,7 +2271,12 @@ fn apply_reducer_guarded(
             } else {
                 "<non-string panic payload>".to_string()
             };
-            let eid_hex: String = event.id.as_bytes().iter().map(|b| format!("{b:02x}")).collect();
+            let eid_hex: String = event
+                .id
+                .as_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
             Err(Error::ReducerPanicked {
                 stream_id: stream_id.to_string(),
                 reducer_name: reducer.name().to_string(),

@@ -124,7 +124,8 @@ impl Store {
     #[napi]
     pub async fn append_batch(&self, appends: Vec<AppendJs>) -> Result<Vec<EventId>> {
         let store = self.inner.clone();
-        let rust_appends: Result<Vec<_>> = appends.into_iter().map(fossic::Append::try_from).collect();
+        let rust_appends: Result<Vec<_>> =
+            appends.into_iter().map(fossic::Append::try_from).collect();
         let rust_appends = rust_appends?;
         tokio::task::spawn_blocking(move || {
             store
@@ -153,7 +154,10 @@ impl Store {
     }
 
     #[napi]
-    pub async fn read_one(&self, event_id: &EventId) -> Result<Option<crate::types::StoredEventJs>> {
+    pub async fn read_one(
+        &self,
+        event_id: &EventId,
+    ) -> Result<Option<crate::types::StoredEventJs>> {
         let store = self.inner.clone();
         let id = event_id.inner;
         tokio::task::spawn_blocking(move || {
@@ -326,9 +330,12 @@ impl Store {
         let dir = parse_direction(&direction)?;
         let depth = max_depth.map(|d| d as usize).unwrap_or(i64::MAX as usize);
         let samp = parse_sampling_mode(sampling);
-        Ok(FossicCausationIter::new(
-            self.inner.walk_causation_iter(start.inner, dir, depth, samp),
-        ))
+        Ok(FossicCausationIter::new(self.inner.walk_causation_iter(
+            start.inner,
+            dir,
+            depth,
+            samp,
+        )))
     }
 
     // ── Branches ──────────────────────────────────────────────────────────────

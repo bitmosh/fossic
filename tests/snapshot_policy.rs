@@ -74,7 +74,10 @@ fn policy_every_n_seconds_accepted() {
     store.declare_stream("s1", "test", None).unwrap();
     let result =
         store.register_reducer_with_policy("s1", SumReducer, SnapshotPolicy::EveryNSeconds(60));
-    assert!(result.is_ok(), "EveryNSeconds(60) should be accepted, got {result:?}");
+    assert!(
+        result.is_ok(),
+        "EveryNSeconds(60) should be accepted, got {result:?}"
+    );
 }
 
 #[test]
@@ -102,7 +105,10 @@ fn state_adaptive_policy_accepted() {
             min_events_between: 10,
         },
     );
-    assert!(result.is_ok(), "StateAdaptive should be accepted, got {result:?}");
+    assert!(
+        result.is_ok(),
+        "StateAdaptive should be accepted, got {result:?}"
+    );
 }
 
 // ── EveryNEvents behavior ─────────────────────────────────────────────────────
@@ -264,7 +270,10 @@ fn state_adaptive_triggers_snapshot() {
     assert_eq!(state.count, 1);
 
     let snap = store.snapshot_info("slow", "main", "slow_reducer").unwrap();
-    assert!(snap.is_some(), "StateAdaptive should have triggered a snapshot");
+    assert!(
+        snap.is_some(),
+        "StateAdaptive should have triggered a snapshot"
+    );
 }
 
 #[test]
@@ -288,7 +297,9 @@ fn state_adaptive_respects_min_events_between() {
     }
     let _: SlowState = store.read_state("slow2", "main").unwrap();
 
-    let snap = store.snapshot_info("slow2", "main", "slow_reducer").unwrap();
+    let snap = store
+        .snapshot_info("slow2", "main", "slow_reducer")
+        .unwrap();
     assert!(
         snap.is_none(),
         "StateAdaptive must not snapshot before min_events_between is reached"
@@ -324,7 +335,7 @@ impl Reducer for BigReducer {
     }
 
     fn apply(&self, mut state: Self::State, _event: &Self::Event) -> Self::State {
-        state.data.extend(std::iter::repeat(0u8).take(50));
+        state.data.extend(vec![0u8; 50]);
         state
     }
 }

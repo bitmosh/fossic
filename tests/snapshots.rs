@@ -162,7 +162,10 @@ fn gc_no_active_reducers_deletes_all_snapshots() {
     // Re-open dir2's DB without registering any reducers.
     let store_empty = Store::open(dir2.path().join("t.db"), OpenOptions::default()).unwrap();
     let deleted = store_empty.gc_orphaned_snapshots().unwrap();
-    assert_eq!(deleted, 1, "should delete the one snapshot for count_reducer");
+    assert_eq!(
+        deleted, 1,
+        "should delete the one snapshot for count_reducer"
+    );
     let _ = path3; // silence unused warning
 }
 
@@ -245,7 +248,10 @@ fn auto_gc_orphans_flag_off_no_gc_on_drop() {
     {
         let _store2 = Store::open(
             path.clone(),
-            OpenOptions { auto_gc_orphans: false, ..Default::default() },
+            OpenOptions {
+                auto_gc_orphans: false,
+                ..Default::default()
+            },
         )
         .unwrap();
         // no reducer registered — drop without GC
@@ -254,7 +260,10 @@ fn auto_gc_orphans_flag_off_no_gc_on_drop() {
     let store3 = Store::open(path.clone(), OpenOptions::default()).unwrap();
     store3.register_reducer("s1", CountReducer).unwrap();
     let snap = store3.snapshot_info("s1", "main", "count_reducer").unwrap();
-    assert!(snap.is_some(), "snapshot must survive when auto_gc_orphans=false");
+    assert!(
+        snap.is_some(),
+        "snapshot must survive when auto_gc_orphans=false"
+    );
 }
 
 #[test]
@@ -274,7 +283,10 @@ fn auto_gc_orphans_flag_on_gc_fires_on_drop() {
     {
         let _store2 = Store::open(
             path.clone(),
-            OpenOptions { auto_gc_orphans: true, ..Default::default() },
+            OpenOptions {
+                auto_gc_orphans: true,
+                ..Default::default()
+            },
         )
         .unwrap();
         // no reducer registered — drop fires GC
@@ -283,7 +295,10 @@ fn auto_gc_orphans_flag_on_gc_fires_on_drop() {
     let store3 = Store::open(path.clone(), OpenOptions::default()).unwrap();
     store3.register_reducer("s1", CountReducer).unwrap();
     let snap = store3.snapshot_info("s1", "main", "count_reducer").unwrap();
-    assert!(snap.is_none(), "orphaned snapshot must be removed when auto_gc_orphans=true");
+    assert!(
+        snap.is_none(),
+        "orphaned snapshot must be removed when auto_gc_orphans=true"
+    );
 }
 
 #[test]
@@ -304,7 +319,10 @@ fn auto_gc_orphans_only_fires_on_last_clone_drop() {
     // Open with auto_gc_orphans=true, no reducers; clone it.
     let store_a = Store::open(
         path.clone(),
-        OpenOptions { auto_gc_orphans: true, ..Default::default() },
+        OpenOptions {
+            auto_gc_orphans: true,
+            ..Default::default()
+        },
     )
     .unwrap();
     let store_b = store_a.clone();
@@ -316,8 +334,13 @@ fn auto_gc_orphans_only_fires_on_last_clone_drop() {
     // Snapshot must still exist.
     let store_check = Store::open(path.clone(), OpenOptions::default()).unwrap();
     store_check.register_reducer("s1", CountReducer).unwrap();
-    let snap_before = store_check.snapshot_info("s1", "main", "count_reducer").unwrap();
-    assert!(snap_before.is_some(), "snapshot must survive while a clone is still alive");
+    let snap_before = store_check
+        .snapshot_info("s1", "main", "count_reducer")
+        .unwrap();
+    assert!(
+        snap_before.is_some(),
+        "snapshot must survive while a clone is still alive"
+    );
     drop(store_check);
 
     // Drop clone B — last reference; GC fires.
@@ -325,6 +348,11 @@ fn auto_gc_orphans_only_fires_on_last_clone_drop() {
 
     let store_final = Store::open(path.clone(), OpenOptions::default()).unwrap();
     store_final.register_reducer("s1", CountReducer).unwrap();
-    let snap_after = store_final.snapshot_info("s1", "main", "count_reducer").unwrap();
-    assert!(snap_after.is_none(), "orphaned snapshot must be removed when the last clone drops");
+    let snap_after = store_final
+        .snapshot_info("s1", "main", "count_reducer")
+        .unwrap();
+    assert!(
+        snap_after.is_none(),
+        "orphaned snapshot must be removed when the last clone drops"
+    );
 }
