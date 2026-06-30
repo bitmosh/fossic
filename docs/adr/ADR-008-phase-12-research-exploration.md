@@ -4,7 +4,7 @@
 **Date:** 2026-06-11
 **Deciders:** Developer (bitmosh)
 **Related Phases:** Phase 12 (Cognitive OS / Reflective Twin v2) — see LUMAWEAVE_NOW.md
-**Related ADRs:** [ADR-005](ADR-005-cerebra-api-shell-out-vs-daemon.md) (Cerebra is the memory substrate for Phase 12 experiments), [ADR-003](ADR-003-eval-core-standalone-package.md) (eval-core is the evaluation harness)
+**Related ADRs:** [ADR-005](ADR-005-cerebra-api-surface.md) (Cerebra is the memory substrate for Phase 12 experiments), [ADR-003](ADR-003-eval-core-standalone.md) (eval-core is the evaluation harness)
 
 ---
 

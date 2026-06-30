@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-06-11
 **Deciders:** Developer (bitmosh)
-**Related ADRs:** [ADR-001](ADR-001-mcp-transport-and-trust-model.md) (eval-core used by Policy Scout eval pipeline), [ADR-003](ADR-003-graph-export-contract.md) (eval-core is the shared eval infrastructure for all modules), [ADR-005](ADR-005-registry-coverage-expansion.md) (eval coverage contract depends on eval-core being importable across projects)
+**Related ADRs:** ADR-001 (eval-core used by Policy Scout eval pipeline — cross-project ADR), ADR-003 (eval-core is the shared eval infrastructure for all modules — cross-project ADR), ADR-005 (eval coverage contract depends on eval-core being importable across projects — cross-project ADR)
 
 ---
 

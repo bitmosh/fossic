@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-06-11
 **Deciders:** Developer (bitmosh)
-**Related ADRs:** [ADR-001](ADR-001-lattica-is-lumaweave-extended.md) (Lattica platform identity), [ADR-002](ADR-002-event-sourcing-toolkit.md) (ES toolkit as event bus), [ADR-003](ADR-003-eval-core-package.md) (eval-core extraction from Policy Scout)
+**Related ADRs:** [ADR-001](ADR-001-lattica-extends-lumaweave.md) (Lattica platform identity), [ADR-002](ADR-002-es-toolkit-over-nats.md) (ES toolkit as event bus), [ADR-003](ADR-003-eval-core-standalone.md) (eval-core extraction from Policy Scout)
 
 ---
 

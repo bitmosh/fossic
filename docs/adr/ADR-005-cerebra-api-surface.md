@@ -4,7 +4,7 @@
 **Date:** 2026-06-11
 **Deciders:** Developer (bitmosh)
 **Supersedes:** —
-**Related ADRs:** [ADR-001](ADR-001-lattica-is-lumaweave.md) (Lattica is LumaWeave extended), [ADR-006](ADR-006-monorepo-layout.md) (monorepo structure, uv workspaces), [ADR-003](ADR-003-eval-core-standalone.md) (eval-core extraction — depends on Cerebra Phase 3 prerequisite)
+**Related ADRs:** [ADR-001](ADR-001-lattica-extends-lumaweave.md) (Lattica is LumaWeave extended), [ADR-006](ADR-006-monorepo-structure.md) (monorepo structure, uv workspaces), [ADR-003](ADR-003-eval-core-standalone.md) (eval-core extraction — depends on Cerebra Phase 3 prerequisite)
 **Related Plans:** Phase 3 (Memory Foundation / Cerebra), Phase 4 (Visualization Bridge), Phase 5 (Reflective Twin v1), Phase 7 (Cerebra Daemon), Phase 9 (Bo Memory Swap)
 
 ---
