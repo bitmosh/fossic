@@ -4,7 +4,7 @@ Rust event sourcing library that gives every event a deterministic BLAKE3 identi
 
 Events are identified by a deterministic BLAKE3 hash of `(event_type, type_version, causation_id, CCE(payload))`. Two identical events at the same causal position produce the same ID, giving idempotent append semantics without a distributed coordinator. Storage is a single SQLite file in WAL mode — no daemon, no network port, no separate server.
 
-**Current version:** v1.8.1 (panic isolation hardening — SR-10 A-5, A-6, A-11)  
+**Current version:** v1.8.2 (public-facing presentation pass)  
 **Status:** Active development
 
 ---

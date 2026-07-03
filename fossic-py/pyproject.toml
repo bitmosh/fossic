@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "fossic"
-version = "1.8.1"
+version = "1.8.2"
 description = "Local-first event sourcing with content-addressed event identity"
 authors = [{name = "Ryan Johnson", url = "https://github.com/bitmosh"}]
 license = { text = "MIT OR Apache-2.0" }

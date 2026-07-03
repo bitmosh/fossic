@@ -1,6 +1,6 @@
 # fossic — Operating Guide
 
-**Version:** v1.8.1  
+**Version:** v1.8.2  
 **Audience:** developers integrating fossic into a project, or running its test suite.
 
 ---

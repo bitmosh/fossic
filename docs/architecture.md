@@ -1,6 +1,6 @@
 # fossic — Architecture Overview
 
-**Version:** v1.8.1  
+**Version:** v1.8.2  
 **Audience:** readers who want to understand how the system fits together before reading code or deep-dives.
 
 ---
