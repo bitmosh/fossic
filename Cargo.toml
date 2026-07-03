@@ -18,6 +18,7 @@ tempfile          = "3"
 name = "fossic"
 version = "1.8.1"
 edition = "2021"
+authors = ["Ryan Johnson <https://github.com/bitmosh>"]
 description = "Local-first event sourcing library with content-addressed event identity"
 license = "MIT OR Apache-2.0"
 
