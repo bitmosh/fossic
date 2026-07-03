@@ -83,6 +83,18 @@ For Python, Node.js, and Tauri quick starts, see the binding READMEs:
 
 ---
 
+## Demo
+
+<!-- OPERATOR: capture a terminal recording or screenshot showing:
+     1. store.append() returning a deterministic event_id
+     2. read_range() returning the stored event
+     3. Ideally: showing the same event_id returned for duplicate append (idempotency demo)
+     Save to docs/assets/demo.gif or docs/assets/demo.png -->
+
+*Demo recording coming soon.*
+
+---
+
 ## Key concepts
 
 **Content-addressed IDs.** `event_id = BLAKE3("fossic-cce-v1\0" || CCE(event_type, type_version, causation_id, payload))`. Stream, branch, and timestamp are excluded — appending the same event twice returns the same ID and stores only one row.
@@ -109,6 +121,28 @@ just test-rust   # Rust workspace only
 just test-py     # Python binding only
 just test-node   # Node binding only
 ```
+
+---
+
+## What's next
+
+Items grounded in open findings, tracked TODOs, and documented gaps as of v1.8.1.
+
+**Planned (tracked in SR-10):**
+- A-1: CCE collision guard — configurable include-stream-id-in-hash mode to prevent silent cross-stream deduplication
+- A-2: Bounded dispatch channel — capacity limit + back-pressure signal on the post-commit channel
+- A-3: Subscription recovery path — drain-and-resubscribe helper with gap detection
+- A-4: Synchronous subscriber timeout — configurable deadline to prevent slow sync subscribers from blocking append
+- A-7, A-8, A-9, A-10: Snapshot and executor resilience improvements (see `docs/deep-dives/failure-modes.md`)
+- A-12 through A-17: System stream reliability, recovery path completeness, and bounded-read cursor gaps
+
+**Planned (implementation gaps):**
+- Pre-built wheel distribution for `fossic-py` — consumers currently require Rust installed locally
+- Aggregate `read_range_bounded` cursor — truncation does not yet produce a resume cursor for fold operations
+- Logging framework adoption — `src/deletion.rs` uses `eprintln!`; planned migration to `log::warn!` or `tracing::warn!`
+
+**Under consideration:**
+- PyO3 bridge latency reduction — `read_state` adds ~47μs per replayed event; aggressive snapshot cadence partially mitigates this
 
 ---
 
