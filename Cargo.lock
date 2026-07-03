@@ -960,7 +960,7 @@ dependencies = [
 
 [[package]]
 name = "fossic"
-version = "1.8.1"
+version = "1.8.2"
 dependencies = [
  "blake3",
  "crossbeam-channel",
@@ -977,7 +977,7 @@ dependencies = [
 
 [[package]]
 name = "fossic-node"
-version = "1.8.1"
+version = "1.8.2"
 dependencies = [
  "crossbeam-channel",
  "fossic",
@@ -993,7 +993,7 @@ dependencies = [
 
 [[package]]
 name = "fossic-py"
-version = "1.8.1"
+version = "1.8.2"
 dependencies = [
  "crossbeam-channel",
  "fossic",
@@ -1006,7 +1006,7 @@ dependencies = [
 
 [[package]]
 name = "fossic-similarity-hnsw"
-version = "1.8.1"
+version = "1.8.2"
 dependencies = [
  "fossic",
  "hnsw_rs",
@@ -1020,7 +1020,7 @@ dependencies = [
 
 [[package]]
 name = "fossic-tauri"
-version = "1.8.1"
+version = "1.8.2"
 dependencies = [
  "base64 0.22.1",
  "fossic",
