@@ -1,6 +1,6 @@
 # fossic
 
-Local-first event sourcing library with content-addressed event identity.
+Rust event sourcing library that gives every event a deterministic BLAKE3 identity. Append the same event twice: one row stored. Replay deterministically without a coordinator.
 
 Events are identified by a deterministic BLAKE3 hash of `(event_type, type_version, causation_id, CCE(payload))`. Two identical events at the same causal position produce the same ID, giving idempotent append semantics without a distributed coordinator. Storage is a single SQLite file in WAL mode — no daemon, no network port, no separate server.
 

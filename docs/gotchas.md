@@ -4,7 +4,7 @@ Properties of the fossic substrate that consumers and integrators reliably encou
 
 Audience: consumers (Cerebra, Policy Scout, future projects) and substrate integrators (sibling crates, third-party MCP servers, code building on fossic directly).
 
-*Last updated: 2026-06-21. Substrate version at time of writing: v1.7.0.*
+*Last updated: 2026-06-21. Substrate version at time of writing: v1.8.1.*
 
 ---
 
@@ -132,7 +132,7 @@ if pressure > ALERT_THRESHOLD {
 
 A nonzero `dispatch_channel_high_water_mark()` that never decreases is normal under burst writes. A value that keeps climbing across reconnect cycles indicates structural backpressure.
 
-Phase 3 (Pressure-Aware Substrate) will surface back-pressure automatically via `PressureBandChanged` events to `_fossic/system`, removing the polling requirement. Phase 4 (Adaptive Subscription Delivery) will introduce priority classes with gradient mitigation for sustained overload.
+Planned — Phase 3 (Pressure-Aware Substrate) will surface back-pressure automatically via `PressureBandChanged` events to `_fossic/system`, removing the polling requirement. Planned — Phase 4 (Adaptive Subscription Delivery) will introduce priority classes with gradient mitigation for sustained overload.
 
 ---
 
@@ -220,7 +220,7 @@ loop {
 
 Size the queue to absorb realistic burst depth: `queue_size` should be at least `peak_write_rate_per_second × expected_max_handler_latency_seconds × safety_factor`. For a handler that may stall 1 s during GC and a write rate of 50 events/s, `queue_size: 500` is a reasonable floor.
 
-Phase 4 will replace binary degradation with gradient degradation: coalescing and sampling before the hard cut, and per-subscription priority classes so critical system consumers don't saturate under the same queue pressure as background subscribers.
+Planned — Phase 4 will replace binary degradation with gradient degradation: coalescing and sampling before the hard cut, and per-subscription priority classes so critical system consumers don't saturate under the same queue pressure as background subscribers.
 
 ---
 
@@ -446,4 +446,4 @@ This document is updated as substrate properties surface during development. Ope
 
 ---
 
-*Document version: 1.0 (2026-06-21). Substrate version at time of writing: v1.7.0.*
+*Document version: 1.0 (2026-06-21). Substrate version at time of writing: v1.8.1.*
