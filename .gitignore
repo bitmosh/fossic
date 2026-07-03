@@ -114,3 +114,6 @@ Desktop.ini
 
 # CI artifacts that occasionally leak into the working tree
 .github/workflows/*.bak
+
+# Pass review working directory
+.review/
