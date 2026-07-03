@@ -1,5 +1,7 @@
 # ADR-004: Policy Scout Governance Scope
 
+> **Historical note:** This record references Rhyzome, bons.ai, and Bo. These do not represent active Lattica ecosystem members — their appearance here reflects early planning context that did not materialize. The decision rationale remains accurate.
+
 **Status:** Accepted
 **Date:** 2026-06-11
 **Deciders:** Developer (bitmosh)

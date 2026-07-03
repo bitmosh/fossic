@@ -31,7 +31,6 @@ blast-radius file under "Living report updates").
 | cerebra | Python | `fossic-py` | `register_reducer`, `read_state`, `take_snapshot`, subscriptions |
 | policy-scout | Python | `fossic-py` | `append`, `read_range`, `register_payload_transform` |
 | lumaweave | TypeScript | `fossic-node` + Tauri IPC | subscriptions (Graph B), event read, Tauri commands |
-| bo (discord-bot) | Python | `fossic-py` | `append`, `read_range` (agent trace logging) |
 | ai-stack | Docker/Python | `fossic-py` | indirect (through cerebra) |
 
 ---

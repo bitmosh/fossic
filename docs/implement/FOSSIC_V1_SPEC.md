@@ -469,7 +469,7 @@ pub enum CheckpointMode {
 
 ### 4.2 PyO3 Python binding
 
-The Python API mirrors the Rust API with synchronous semantics. Python is the most-represented consumer language in the profiles and they are all synchronous. An async wrapper layer (`fossic_aio`) is published as a separate package for asyncio consumers (Bo, LiteLLM) — it wraps the sync API in `asyncio.to_thread`.
+The Python API mirrors the Rust API with synchronous semantics. Python is the most-represented consumer language in the profiles and they are all synchronous. An async wrapper layer (`fossic_aio`) is published as a separate package for asyncio consumers (Cerebra, LiteLLM) — it wraps the sync API in `asyncio.to_thread`.
 
 ```python
 from fossic import Store, Append, ReadQuery, OpenOptions, SubscriptionMode
@@ -708,7 +708,7 @@ store.append(Append(stream_id="cerbra/lattice/abc123", ...))
 
 Stream ID conventions are documented but not enforced by the type:
 
-- **Format:** `{module}/{resource-type}/{resource-id}[/{sub-type}]`. Examples: `cerebra/lattice/lineage_abc`, `cerebra/agent-trace/session_42`, `lumaweave/graph`, `policy-scout/audit`, `ai-stack/inference/req_xyz`, `bo/conversation/channel_42`.
+- **Format:** `{module}/{resource-type}/{resource-id}[/{sub-type}]`. Examples: `cerebra/lattice/lineage_abc`, `cerebra/agent-trace/session_42`, `lumaweave/graph`, `policy-scout/audit`, `ai-stack/inference/req_xyz`, `cerebra/conversation/channel_42`.
 - **Max length:** 256 characters.
 - **Allowed characters:** alphanumeric, `-`, `_`, `/`. No whitespace, no quote characters, no path separators other than `/`.
 - **Max path segments:** 4.

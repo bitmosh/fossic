@@ -1,5 +1,7 @@
 # ADR-002: Event Fabric via ES Toolkit, Not NATS
 
+> **Historical note:** This record references Rhyzome, bons.ai, and Bo. These do not represent active Lattica ecosystem members — their appearance here reflects early planning context that did not materialize. The decision rationale remains accurate.
+
 **Status:** Accepted
 **Date:** 2026-06-11
 

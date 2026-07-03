@@ -1,5 +1,7 @@
 # ADR-001: Lattica IS LumaWeave Extended
 
+> **Historical note:** This record references Rhyzome, bons.ai, Bo, and discord-bot. These do not represent active Lattica ecosystem members — their appearance here reflects early planning context that did not materialize. The decision rationale remains accurate.
+
 **Status:** Accepted
 **Date:** 2026-06-11
 **Deciders:** Developer + Claude Code alignment analysis
