@@ -5,6 +5,20 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.8.1-docs — 2026-06-30
+
+### Changed
+
+- Restructured documentation surface for employer/portfolio review (36b9203, 968c2c7)
+  - Added `docs/architecture.md`, `docs/operating.md`, `docs/history.md` (all claims source-verified against src/ at v1.8.1)
+  - Rewrote README as a routing entry point for the documentation suite
+  - Promoted SR-01–SR-10 to `docs/deep-dives/`; relocated `SUBSTRATE_GOTCHAS.md` to `docs/gotchas.md`
+  - Archived ~80 aseptic process artifacts and adjacent-project-info to `archive/2026-06-21-pre-cleanup/`
+  - Fixed 10 broken ADR cross-reference slugs in ADR-004, ADR-005, ADR-006, ADR-008
+  - Added historical disclaimers to ADR-001 through ADR-006
+
+---
+
 ## v1.8.1 — 2026-06-21
 
 ### Panic isolation hardening
