@@ -670,7 +670,7 @@ Push notifications use Tauri's native `emit` mechanism. The `fossic_subscribe` c
 
 Fossic uses Model 1 for snapshot ownership: reducers are consumer code, and snapshots are language-bound. A snapshot row carries `reducer_name`, `reducer_version`, and `state_schema_version` so that a snapshot can only be read by a reducer registration that matches all three.
 
-**Pattern-based registration** is the v1 API. Consumers register one reducer against a glob-style stream pattern; the reducer applies to every stream matching the pattern. This is the right model when consumers have many similar streams (eCerebra's per-lattice-node streams, ai-stack's per-inference-session streams).
+**Pattern-based registration** is the v1 API. Consumers register one reducer against a glob-style stream pattern; the reducer applies to every stream matching the pattern. This is the right model when consumers have many similar streams (Cerebra's per-lattice-node streams, ai-stack's per-inference-session streams).
 
 ```python
 store.register_reducer(
@@ -993,7 +993,7 @@ Use cases: LumaWeave subgraph highlighting (one user action triggers events acro
 
 `store.walk_causation(start_event_id, direction, max_depth)` walks the `causation_id` graph forward (children: events whose causation_id is the start), backward (ancestors), or both. Implemented as a SQLite recursive CTE.
 
-Use cases: eCerebra session lineage walk ("show me the full ancestor chain of this re-injection"), incident forensics ("what did this initial event lead to").
+Use cases: Cerebra session lineage walk ("show me the full ancestor chain of this re-injection"), incident forensics ("what did this initial event lead to").
 
 `walk_causation_bounded` adds budgets, cursor resumption, and `SamplingMode` (Exhaustive / BreadthFirst / Adaptive). `walk_causation_iter` streams the same walk as a `FusedIterator` that releases its pool connection before each yield.
 
@@ -1041,7 +1041,7 @@ See `AGENT_TRACE_VOCABULARY.md` for the full event type list and per-tool determ
 
 Standard event types: `llm_call`, `llm_response`, `tool_call`, `tool_result`, `reasoning_step`.
 
-eCerebra extension: 24 PascalCase types covering cognitive session lifecycle, cycle/step execution, prediction/evaluation, clutch decisions, re-injection, memory updates, consolidation, graph export, and daemon controls. See `AGENT_TRACE_VOCABULARY.md` §5.
+Cerebra extension: 24 PascalCase types covering cognitive session lifecycle, cycle/step execution, prediction/evaluation, clutch decisions, re-injection, memory updates, consolidation, graph export, and daemon controls. See `AGENT_TRACE_VOCABULARY.md` §5.
 
 ai-stack extension: planned; `ai_stack.*` namespace in `AGENT_TRACE_VOCABULARY.md`.
 
@@ -1167,22 +1167,22 @@ A reverse-index of which v1 features each consumer profile drove:
 | Feature | Driving consumer(s) |
 |---|---|
 | Single-file SQLite | All; bench confirms |
-| `external_id` column | eCerebra (`evt_<uuid>`), Policy Scout (`request_id`) |
-| `indexed_tags` column | eCerebra (lattice aggregate queries), ai-stack (inference metadata) |
+| `external_id` column | Cerebra (`evt_<uuid>`), Policy Scout (`request_id`) |
+| `indexed_tags` column | Cerebra (lattice aggregate queries), ai-stack (inference metadata) |
 | Payload transform hook | Policy Scout (`redact_dict`) |
 | Pre-built wheels | All Python consumers |
-| Sync-first Python | eCerebra (hard requirement), Policy Scout |
-| Branch lifecycle states | eCerebra (ephemeral session branches, dead_end for culled paths) |
-| `alternatives` on branch creation | eCerebra (CatalystArmSelected ranked strategies) |
-| Pattern-based reducer registration | eCerebra (thousands of lattice nodes per lineage) |
-| Crypto-shredding (per-stream DEK) | eCerebra (session/source deletion) |
-| Causation walk + correlation lookup | eCerebra (re-injection lineage), LumaWeave (subgraph highlight) |
-| `SimilaritySearchProvider` extension | eCerebra + ai-stack (semantic NN on event payloads via fossic-similarity-hnsw) |
-| Upcaster protocol | eCerebra (`schema_version` first-class field) |
+| Sync-first Python | Cerebra (hard requirement), Policy Scout |
+| Branch lifecycle states | Cerebra (ephemeral session branches, dead_end for culled paths) |
+| `alternatives` on branch creation | Cerebra (CatalystArmSelected ranked strategies) |
+| Pattern-based reducer registration | Cerebra (thousands of lattice nodes per lineage) |
+| Crypto-shredding (per-stream DEK) | Cerebra (session/source deletion) |
+| Causation walk + correlation lookup | Cerebra (re-injection lineage), LumaWeave (subgraph highlight) |
+| `SimilaritySearchProvider` extension | Cerebra + ai-stack (semantic NN on event payloads via fossic-similarity-hnsw) |
+| Upcaster protocol | Cerebra (`schema_version` first-class field) |
 | Tauri IPC command set | LumaWeave (webview consumer) |
 | `deterministic: false` default | ai-stack (non-deterministic inference calls; replay divergence is expected) |
-| Per-tool determinism registry | eCerebra (per-tool table for replay control) |
-| Subscription mode split | LumaWeave (real-time Graph B), eCerebra (backpressure-tolerant) |
+| Per-tool determinism registry | Cerebra (per-tool table for replay control) |
+| Subscription mode split | LumaWeave (real-time Graph B), Cerebra (backpressure-tolerant) |
 
 ---
 

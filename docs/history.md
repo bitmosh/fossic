@@ -12,7 +12,7 @@ by date. Every claim cites a source artifact in the archive. Read alongside
 Fossic was not conceived as a library. It was conceived as infrastructure.
 
 In mid-2026, development was underway on Lattica — a platform intended to unify
-several independent modules (LumaWeave, eCerebra, Policy Scout, ai-stack, fossic)
+several independent modules (LumaWeave, Cerebra, Policy Scout, ai-stack, fossic)
 into a "Reflective Twin Architecture": two graphs of system state kept
 synchronized through a semantically meaningful diff layer. The diff layer would
 carry not just file changes but agent activity: `Agent investigating file X`,
@@ -34,7 +34,7 @@ writing the library anyway.
 
 The architectural decision was to build it directly: a Rust core backed by a
 single SQLite file in WAL mode, with PyO3 bindings for the Python modules
-(eCerebra, Policy Scout, ai-stack) and napi-rs bindings for the TypeScript
+(Cerebra, Policy Scout, ai-stack) and napi-rs bindings for the TypeScript
 frontend (LumaWeave). No daemon, no port, no separate server process. The Tauri
 backend would import the crate directly. At this stage the library was called
 `lattica-es` and scoped to Phase 6 of the Lattica plan, with Phases 1–5 expected
@@ -162,7 +162,7 @@ detect contention.
 
 The v1.1.x sprint (2026-06-20 through 2026-06-21, nine passes) was the largest
 architectural expansion since the day-one sprint. It was driven by Lattica
-integration requirements: as eCerebra and ai-stack were wired against fossic at
+integration requirements: as Cerebra and ai-stack were wired against fossic at
 scale, the unbounded read APIs became a concrete OOM risk rather than a
 theoretical one.
 
