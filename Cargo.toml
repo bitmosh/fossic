@@ -21,6 +21,15 @@ edition = "2021"
 authors = ["Ryan Johnson <https://github.com/bitmosh>"]
 description = "Local-first event sourcing library with content-addressed event identity"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/bitmosh/fossic"
+readme = "README.md"
+include = [
+    "src/**/*.rs",
+    "/Cargo.toml",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+]
 
 [features]
 default = ["agent-trace"]
