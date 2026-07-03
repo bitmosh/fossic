@@ -4,19 +4,26 @@ Rust event sourcing library that gives every event a deterministic BLAKE3 identi
 
 Events are identified by a deterministic BLAKE3 hash of `(event_type, type_version, causation_id, CCE(payload))`. Two identical events at the same causal position produce the same ID, giving idempotent append semantics without a distributed coordinator. Storage is a single SQLite file in WAL mode — no daemon, no network port, no separate server.
 
-**Current version:** v1.8.1 (panic isolation hardening — SR-10 A-5, A-6, A-11)
+**Current version:** v1.8.1 (panic isolation hardening — SR-10 A-5, A-6, A-11)  
+**Status:** Active development
 
 ---
 
-## Crates in this workspace
+## Why this exists
 
-| Crate | Path | Purpose |
-|---|---|---|
-| `fossic` | `.` | Rust core library |
-| `fossic-py` | `fossic-py/` | PyO3 Python bindings |
-| `fossic-node` | `fossic-node/` | napi-rs Node.js bindings with TypeScript types |
-| `fossic-tauri` | `crates/fossic-tauri/` | Tauri 2 IPC companion crate |
-| `fossic-similarity-hnsw` | `crates/fossic-similarity-hnsw/` | HNSW-backed semantic search provider |
+Fossic exists because coordinating six local AI services — each with their own event vocabulary — required a substrate that could remember events, version them, branch them, and replay them deterministically. NATS was evaluated and rejected (see [ADR-002](docs/adr/ADR-002-es-toolkit-over-nats.md)): JetStream adds retention but not content-addressed identity, no branchable stream model, and no reducer contract. The reflective twin architecture required building this directly.
+
+---
+
+## Demo
+
+<!-- OPERATOR: capture a terminal recording or screenshot showing:
+     1. store.append() returning a deterministic event_id
+     2. read_range() returning the stored event
+     3. Ideally: showing the same event_id returned for duplicate append (idempotency demo)
+     Save to docs/assets/demo.gif or docs/assets/demo.png -->
+
+*Demo recording coming soon.*
 
 ---
 
@@ -41,6 +48,18 @@ For Python, Node.js, and Tauri quick starts, see the binding READMEs:
 - [`fossic-py/README.md`](fossic-py/README.md)
 - [`fossic-node/README.md`](fossic-node/README.md)
 - [`crates/fossic-tauri/README.md`](crates/fossic-tauri/README.md)
+
+---
+
+## Crates in this workspace
+
+| Crate | Path | Purpose |
+|---|---|---|
+| `fossic` | `.` | Rust core library |
+| `fossic-py` | `fossic-py/` | PyO3 Python bindings |
+| `fossic-node` | `fossic-node/` | napi-rs Node.js bindings with TypeScript types |
+| `fossic-tauri` | `crates/fossic-tauri/` | Tauri 2 IPC companion crate |
+| `fossic-similarity-hnsw` | `crates/fossic-similarity-hnsw/` | HNSW-backed semantic search provider |
 
 ---
 
@@ -83,18 +102,6 @@ For Python, Node.js, and Tauri quick starts, see the binding READMEs:
 
 ---
 
-## Demo
-
-<!-- OPERATOR: capture a terminal recording or screenshot showing:
-     1. store.append() returning a deterministic event_id
-     2. read_range() returning the stored event
-     3. Ideally: showing the same event_id returned for duplicate append (idempotency demo)
-     Save to docs/assets/demo.gif or docs/assets/demo.png -->
-
-*Demo recording coming soon.*
-
----
-
 ## Key concepts
 
 **Content-addressed IDs.** `event_id = BLAKE3("fossic-cce-v1\0" || CCE(event_type, type_version, causation_id, payload))`. Stream, branch, and timestamp are excluded — appending the same event twice returns the same ID and stores only one row.
@@ -105,7 +112,7 @@ For Python, Node.js, and Tauri quick starts, see the binding READMEs:
 
 **Reducers.** Pure `(State, Event) → State` functions registered against glob stream patterns. `read_state` folds events through the reducer using the most recent snapshot as a starting point. Panics in `apply` return `Error::ReducerPanicked` rather than unwinding.
 
-**Branches.** Lightweight pointer records — no event copying on branch creation. A branch diverges from a parent at a specific version; all events since that version on the parent are accessible to the branch via the ancestor chain.
+**Branches.** Lightweight pointer records — no event copying on branch creation. A branch diverges from a parent at a specific version and inherits all prior events via the ancestor chain.
 
 **Bounded reads.** All major read operations have `_bounded` variants returning `ReadOutcome<T>` (`Complete` or `Truncated { data, cursor, reason }`). Pass the cursor back to resume. Streaming iterators release the read-pool connection between yields.
 
@@ -143,6 +150,12 @@ Items grounded in open findings, tracked TODOs, and documented gaps as of v1.8.1
 
 **Under consideration:**
 - PyO3 bridge latency reduction — `read_state` adds ~47μs per replayed event; aggressive snapshot cadence partially mitigates this
+
+---
+
+## Part of the Lattica ecosystem
+
+Fossic is the event substrate for [Lattica](<!-- provisional, sync with canonical ecosystem doc -->), alongside Cerebra, LumaWeave, Policy Scout, and AI Stack.
 
 ---
 
