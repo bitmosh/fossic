@@ -4,6 +4,7 @@ version = "1.8.2"
 edition = "2021"
 description = "napi-rs Node.js bindings for fossic"
 license = "MIT"
+publish = false
 
 [lib]
 crate-type = ["cdylib"]
