@@ -6,6 +6,8 @@ description = "Tauri 2 IPC companion crate for fossic"
 license = "MIT"
 repository = "https://github.com/bitmosh/fossic"
 readme = "README.md"
+keywords = ["tauri", "ipc", "event-sourcing", "desktop"]
+categories = ["gui", "asynchronous"]
 
 [features]
 default = []

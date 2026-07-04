@@ -19,10 +19,12 @@ name = "fossic"
 version = "1.8.2"
 edition = "2021"
 authors = ["Ryan Johnson <https://github.com/bitmosh>"]
-description = "Local-first event sourcing library with content-addressed event identity"
+description = "Event-sourced substrate for the Lattica local-first tooling ecosystem. Consumers emit events to per-project stores; a central hub aggregates them for unified observability. Optional at the individual-consumer level, required for Lattica ecosystem integration."
 license = "MIT"
 repository = "https://github.com/bitmosh/fossic"
 readme = "README.md"
+keywords = ["events", "event-sourcing", "observability", "local-first"]
+categories = ["asynchronous", "data-structures"]
 include = [
     "src/**/*.rs",
     "/Cargo.toml",
