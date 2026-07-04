@@ -84,7 +84,6 @@ jobs:
   python-tests:
     name: Python Tests (fossic-py)
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('fossic-py/pyproject.toml') != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -108,7 +107,6 @@ jobs:
   node-tests:
     name: Node Tests (fossic-node)
     runs-on: ubuntu-latest
-    if: ${{ hashFiles('fossic-node/package.json') != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
