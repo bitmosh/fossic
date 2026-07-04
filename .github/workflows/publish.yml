@@ -41,6 +41,11 @@ jobs:
         python: ['3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
+      - name: Install system deps (Linux only — glib for tauri workspace transitive)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-dev pkg-config
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -61,6 +66,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install system deps (glib for tauri workspace transitive)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-dev pkg-config
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
