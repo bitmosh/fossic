@@ -17,13 +17,7 @@ Fossic exists because coordinating six local AI services — each with their own
 
 ## Demo
 
-<!-- OPERATOR: capture a terminal recording or screenshot showing:
-     1. store.append() returning a deterministic event_id
-     2. read_range() returning the stored event
-     3. Ideally: showing the same event_id returned for duplicate append (idempotency demo)
-     Save to docs/assets/demo.gif or docs/assets/demo.png -->
-
-*Demo recording coming soon.*
+![Fossic demo](https://raw.githubusercontent.com/bitmosh/fossic/main/docs/assets/demo.gif)
 
 ---
 
