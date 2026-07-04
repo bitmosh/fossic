@@ -3,7 +3,7 @@ members = [".", "fossic-py", "fossic-node", "crates/fossic-tauri", "crates/fossi
 resolver = "2"
 
 [workspace.dependencies]
-fossic                   = { path = ".", version = "1.8.2" }
+fossic                   = { path = ".", version = "1.8.3" }
 fossic-similarity-hnsw   = { path = "crates/fossic-similarity-hnsw" }
 serde             = { version = "1", features = ["derive"] }
 serde_json        = "1"
@@ -16,7 +16,7 @@ tempfile          = "3"
 
 [package]
 name = "fossic"
-version = "1.8.2"
+version = "1.8.3"
 edition = "2021"
 authors = ["Ryan Johnson <https://github.com/bitmosh>"]
 description = "Event-sourced substrate for the Lattica local-first tooling ecosystem. Consumers emit events to per-project stores; a central hub aggregates them for unified observability. Optional at the individual-consumer level, required for Lattica ecosystem integration."

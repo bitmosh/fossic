@@ -1,0 +1,153 @@
+name: Release to crates.io
+
+# Triggered by version tags: v0.1.0, v1.2.3, etc.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+# Top-level permissions minimal; job-level permissions grant only what's needed.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ── 1. Verify ─────────────────────────────────────────────────────────────────
+  # Ensures the tag matches Cargo.toml version and codebase passes checks.
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Tag ↔ Cargo.toml version check
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          CRATE_VER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+          if [ "$TAG" != "$CRATE_VER" ]; then
+            echo "::error::Tag ($TAG) ≠ Cargo.toml version ($CRATE_VER). Bump the crate version before tagging."
+            exit 1
+          fi
+          echo "Root crate version: $CRATE_VER"
+
+      - name: Tag ↔ fossic-tauri version check
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          TAURI_VER=$(grep '^version' crates/fossic-tauri/Cargo.toml | head -1 | cut -d'"' -f2)
+          if [ "$TAG" != "$TAURI_VER" ]; then
+            echo "::error::Tag ($TAG) ≠ fossic-tauri Cargo.toml version ($TAURI_VER). Version bumps must be coordinated across workspace crates."
+            exit 1
+          fi
+          echo "fossic-tauri version: $TAURI_VER"
+
+      - name: clippy -D warnings
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: fmt --check
+        run: cargo fmt --check
+
+      - name: cargo test --all-features
+        run: cargo test --all-features
+
+      - name: CCE vectors
+        run: cargo test --test cce_vectors
+
+      - name: Dry-run publish for fossic
+        run: cargo publish --dry-run -p fossic
+
+      # Note: dry-run for fossic-tauri cannot succeed here because it depends on
+      # fossic (the current version) which isn't published to crates.io yet.
+      # It's verified via cargo package --list instead, which doesn't require
+      # registry resolution.
+      - name: Package check for fossic-tauri
+        run: cargo package --list -p fossic-tauri > /dev/null
+
+  # ── 2. Publish fossic (root) ──────────────────────────────────────────────────
+  publish-fossic:
+    name: Publish fossic to crates.io
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      id-token: write   # required for OIDC trusted publishing
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Authenticate with crates.io via OIDC
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - name: Publish fossic
+        run: cargo publish -p fossic --token "${{ steps.auth.outputs.token }}"
+
+      - name: Wait for propagation
+        run: |
+          echo "Waiting 60 seconds for crates.io index propagation..."
+          sleep 60
+
+      - name: Verify fossic is live
+        run: |
+          curl -s -H "User-Agent: bitmosh-fossic-release (github.com/bitmosh)" \
+            "https://crates.io/api/v1/crates/fossic" > /tmp/fossic.json
+          MAX_VER=$(jq -r '.crate.max_version' /tmp/fossic.json)
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$MAX_VER" != "$TAG" ]; then
+            echo "::error::fossic max_version on crates.io is $MAX_VER, expected $TAG"
+            cat /tmp/fossic.json
+            exit 1
+          fi
+          echo "fossic $MAX_VER verified live on crates.io"
+
+  # ── 3. Publish fossic-tauri (depends on fossic being live) ────────────────────
+  publish-fossic-tauri:
+    name: Publish fossic-tauri to crates.io
+    needs: publish-fossic
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Authenticate with crates.io via OIDC
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - name: Publish fossic-tauri
+        run: cargo publish -p fossic-tauri --token "${{ steps.auth.outputs.token }}"
+
+      - name: Wait for propagation
+        run: |
+          echo "Waiting 60 seconds for crates.io index propagation..."
+          sleep 60
+
+      - name: Verify fossic-tauri is live
+        run: |
+          curl -s -H "User-Agent: bitmosh-fossic-release (github.com/bitmosh)" \
+            "https://crates.io/api/v1/crates/fossic-tauri" > /tmp/fossic-tauri.json
+          MAX_VER=$(jq -r '.crate.max_version' /tmp/fossic-tauri.json)
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$MAX_VER" != "$TAG" ]; then
+            echo "::error::fossic-tauri max_version on crates.io is $MAX_VER, expected $TAG"
+            cat /tmp/fossic-tauri.json
+            exit 1
+          fi
+          echo "fossic-tauri $MAX_VER verified live on crates.io"

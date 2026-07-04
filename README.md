@@ -17,7 +17,7 @@ Fossic exists because coordinating six local AI services — each with their own
 
 ## Demo
 
-![Fossic demo](https://github.com/bitmosh/fossic/raw/main/docs/assets/demo.gif)
+![Fossic demo](https://raw.githubusercontent.com/bitmosh/fossic/HEAD/docs/assets/demo.gif)
 
 ---
 
