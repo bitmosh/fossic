@@ -174,4 +174,4 @@ Tests are written with [vitest](https://vitest.dev) and live in `__test__/`.
 
 ## License
 
-MIT OR Apache-2.0
+MIT

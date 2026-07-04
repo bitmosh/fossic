@@ -214,4 +214,4 @@ See [`crates/fossic-similarity-hnsw/README.md`](../crates/fossic-similarity-hnsw
 
 ## License
 
-MIT OR Apache-2.0
+MIT

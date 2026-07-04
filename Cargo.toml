@@ -3,7 +3,7 @@ members = [".", "fossic-py", "fossic-node", "crates/fossic-tauri", "crates/fossi
 resolver = "2"
 
 [workspace.dependencies]
-fossic                   = { path = "." }
+fossic                   = { path = ".", version = "1.8.2" }
 fossic-similarity-hnsw   = { path = "crates/fossic-similarity-hnsw" }
 serde             = { version = "1", features = ["derive"] }
 serde_json        = "1"
@@ -20,7 +20,7 @@ version = "1.8.2"
 edition = "2021"
 authors = ["Ryan Johnson <https://github.com/bitmosh>"]
 description = "Local-first event sourcing library with content-addressed event identity"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 repository = "https://github.com/bitmosh/fossic"
 readme = "README.md"
 include = [

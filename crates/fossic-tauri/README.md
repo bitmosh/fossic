@@ -147,4 +147,4 @@ fossic-tauri = { path = "path/to/crates/fossic-tauri" }
 
 ## License
 
-MIT OR Apache-2.0
+MIT

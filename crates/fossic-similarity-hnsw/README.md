@@ -137,4 +137,4 @@ The provider emits events to the `_fossic/system` stream with `indexed_tags = {"
 
 ## License
 
-MIT OR Apache-2.0
+MIT

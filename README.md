@@ -161,4 +161,4 @@ Fossic is the event substrate for [Lattica](<!-- provisional, sync with canonica
 
 ## License
 
-MIT OR Apache-2.0
+MIT
