@@ -53,8 +53,8 @@ yarn-error.log*
 # checking it in would be a 200MB+ headache)
 fossic-node/*.node
 fossic-node/npm/**/*.node
-fossic-node/index.js
 fossic-node/index.d.ts.bak
+fossic-node/target/
 
 # package-lock.json IS committed — it's the npm equivalent of Cargo.lock
 

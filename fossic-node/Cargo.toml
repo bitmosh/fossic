@@ -15,7 +15,7 @@ default = []
 [dependencies]
 fossic            = { workspace = true }
 napi              = { version = "2", features = ["napi6", "async", "serde-json"] }
-napi-derive       = "2"
+napi-derive       = { version = "2", features = ["type-def"] }
 crossbeam-channel = { workspace = true }
 serde             = { workspace = true }
 serde_json        = { workspace = true }

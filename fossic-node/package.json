@@ -8,21 +8,24 @@
   "files": [
     "index.js",
     "index.d.ts",
-    "fossic.node",
     "npm/"
   ],
   "scripts": {
-    "build": "napi build --platform --release",
-    "build:debug": "napi build --platform",
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release --no-js --dts index.d.ts.bak",
+    "build:debug": "napi build --platform --no-js --dts index.d.ts.bak",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "napi": {
-    "name": "fossic",
-    "triples": {
-      "defaults": true,
-      "additional": []
-    }
+    "binaryName": "fossic",
+    "targets": [
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu",
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin",
+      "x86_64-pc-windows-msvc"
+    ]
   },
   "devDependencies": {
     "@napi-rs/cli": "^3",
@@ -33,12 +36,5 @@
   "license": "MIT OR Apache-2.0",
   "engines": {
     "node": ">=18"
-  },
-  "optionalDependencies": {
-    "fossic-linux-x64-gnu": "*",
-    "fossic-linux-arm64-gnu": "*",
-    "fossic-darwin-x64": "*",
-    "fossic-darwin-arm64": "*",
-    "fossic-win32-x64-msvc": "*"
   }
 }

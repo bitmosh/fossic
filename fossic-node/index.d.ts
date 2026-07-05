@@ -218,3 +218,11 @@ export declare const FossicErrorCode: {
 export declare class FossicError extends Error {
   code: string
 }
+
+export interface FossicReducer {
+  name: string
+  version: number
+  stateSchemaVersion: number
+  initialState(): Uint8Array
+  apply(state: Uint8Array, event: StoredEvent): Uint8Array
+}
