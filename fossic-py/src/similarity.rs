@@ -45,6 +45,7 @@ impl PyHnswProvider {
     /// - `quiescence_window_ms`: how long the store must be idle before the background
     ///   executor fires a scheduled save (default 2000). Lower values speed up tests.
     #[new]
+    #[allow(clippy::too_many_arguments)] // PyO3 constructor — args map 1:1 to Python __new__ signature
     #[pyo3(signature = (
         db_path,
         dimensions,

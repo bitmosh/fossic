@@ -391,6 +391,7 @@ impl PyStore {
             .map_err(to_py_err)
     }
 
+    #[allow(clippy::too_many_arguments)] // PyO3 method — args map 1:1 to Python method signature
     #[pyo3(signature = (start, direction = "forward".to_string(), max_depth = 100, sampling = None, max_results = None, max_bytes = None, cursor = None))]
     fn walk_causation_bounded(
         &self,
@@ -404,7 +405,7 @@ impl PyStore {
     ) -> PyResult<PyReadOutcome> {
         let dir = parse_direction(&direction)?;
         let samp = sampling
-            .map(|s| s.inner.clone())
+            .map(|s| s.inner)
             .unwrap_or(fossic::SamplingMode::Exhaustive);
         let rust_cursor =
             cursor.map(|c| fossic::TruncationCursor::from_bytes(c.inner.as_bytes().to_vec()));
@@ -446,7 +447,7 @@ impl PyStore {
     ) -> PyResult<PyCausationIter> {
         let dir = parse_direction(&direction)?;
         let samp = sampling
-            .map(|s| s.inner.clone())
+            .map(|s| s.inner)
             .unwrap_or(fossic::SamplingMode::Exhaustive);
         Ok(PyCausationIter {
             inner: self

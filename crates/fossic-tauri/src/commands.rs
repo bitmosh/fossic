@@ -196,6 +196,7 @@ pub fn fossic_walk_causation(
 
 // ── Bounded read commands ─────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)] // Tauri command — args map 1:1 to JS call signature
 #[tauri::command]
 pub fn fossic_read_range_bounded(
     store: State<'_, Store>,
@@ -226,6 +227,7 @@ pub fn fossic_read_range_bounded(
         .map_err(FossicTauriError::from)
 }
 
+#[allow(clippy::too_many_arguments)] // Tauri command — args map 1:1 to JS call signature
 #[tauri::command]
 pub fn fossic_read_range_from_cursor(
     store: State<'_, Store>,
@@ -308,6 +310,7 @@ pub fn fossic_walk_causation_bounded(
         .map_err(FossicTauriError::from)
 }
 
+#[allow(clippy::too_many_arguments)] // Tauri command — args map 1:1 to JS call signature
 #[tauri::command]
 pub fn fossic_walk_causation_from_cursor(
     store: State<'_, Store>,
@@ -367,6 +370,7 @@ pub struct SerializedAggregateOutcome {
     pub reason: Option<&'static str>,
 }
 
+#[allow(clippy::too_many_arguments)] // Tauri command — args map 1:1 to JS call signature
 #[tauri::command]
 pub fn fossic_aggregate_bounded(
     store: State<'_, Store>,

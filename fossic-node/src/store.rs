@@ -275,6 +275,7 @@ impl Store {
         .map_err(|e| Error::new(Status::GenericFailure, e.to_string()))?
     }
 
+    #[allow(clippy::too_many_arguments)] // NAPI FFI shape — args map 1:1 to JS call signature
     #[napi]
     pub async fn walk_causation_bounded(
         &self,

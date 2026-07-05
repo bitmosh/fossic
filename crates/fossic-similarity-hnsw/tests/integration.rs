@@ -242,7 +242,7 @@ fn corrupt_index_data_file_recovers_to_empty() {
 
     // Truncate the data file.
     let data_path = dir.path().join("hnsw/index.hnsw.data");
-    std::fs::write(&data_path, &[0u8; 100]).unwrap();
+    std::fs::write(&data_path, [0u8; 100]).unwrap();
 
     // Reload — must not panic, must be operational.
     let p2 = make_provider_in(&dir, DIMS);
