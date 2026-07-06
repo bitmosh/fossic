@@ -1,8 +1,16 @@
 # fossic-similarity-hnsw
 
-HNSW-backed implementation of [`fossic::SimilaritySearchProvider`](../../README.md) via [`hnsw_rs`](https://crates.io/crates/hnsw_rs).
+HNSW-backed implementation of [`fossic::SimilaritySearchProvider`](https://crates.io/crates/fossic) via [`hnsw_rs`](https://crates.io/crates/hnsw_rs).
 
-Enables semantic search over fossic event payloads at Cerebra scale (50k–500k vectors). Wire it into a `Store` via `OpenOptions::similarity_provider`, or use it standalone from Python via `fossic.similarity.HnswProvider`.
+Enables semantic search over fossic event payloads at 50k–500k vector scale. Wire it into a `Store` via `OpenOptions::similarity_provider`, or use it standalone from Python via `fossic.similarity.HnswProvider`.
+
+## Installation
+
+```toml
+[dependencies]
+fossic = "1.8.2"
+fossic-similarity-hnsw = "1.8.2"
+```
 
 ## Quick start (Rust)
 
@@ -22,14 +30,14 @@ let store = Store::open("store.db", OpenOptions {
 })?;
 
 // 3. Index an event embedding directly.
-provider.index_with_stream_id(event_id, "cerebra/lattice/abc123", &embedding)?;
+provider.index_with_stream_id(event_id, "docs/embeddings/abc123", &embedding)?;
 
 // 4. Query k nearest neighbours.
 use fossic::SimilarityQuery;
 let hits = provider.query(SimilarityQuery {
     embedding: query_vec,
     k: 10,
-    stream_pattern: Some("cerebra/lattice/*".into()),
+    stream_pattern: Some("docs/embeddings/*".into()),
 })?;
 
 // 5. Persist.
@@ -42,9 +50,9 @@ provider.save_to_disk()?;
 from fossic.similarity import HnswProvider, SimilarityQuery
 
 provider = HnswProvider("store.db", dimensions=1024)
-provider.index_with_stream_id(event_id_bytes, "cerebra/lattice/abc123", embedding)
+provider.index_with_stream_id(event_id_bytes, "docs/embeddings/abc123", embedding)
 
-sq = SimilarityQuery(embedding=query_vec, k=10, stream_pattern="cerebra/lattice/*")
+sq = SimilarityQuery(embedding=query_vec, k=10, stream_pattern="docs/embeddings/*")
 results = provider.query(sq.as_dict())
 # results: [{"event_id": bytes, "score": float}, ...]
 
@@ -94,7 +102,7 @@ For hot-write workloads, call `schedule_save` instead of `save_to_disk` directly
 HnswProvider::schedule_save(provider.clone(), &store, TaskPriority::Low);
 ```
 
-`schedule_save` implements **storm prevention**: it stamps `save_pending = true` at schedule time (not at execution time — the "optimistic stamp" pattern from SUBSTRATE_EXTENSION_PATTERNS §3). Calling it 1 000 times in a hot loop schedules exactly one task.
+`schedule_save` implements **storm prevention**: it stamps `save_pending = true` at schedule time (not at execution time — the "optimistic stamp" pattern). Calling it 1 000 times in a hot loop schedules exactly one task.
 
 The task fires after the store has been idle for `executor_quiescence_window_ms` milliseconds (default 2 000 ms). If the provider is dropped before then, `Weak::upgrade()` returns `None` and the closure exits cleanly — no panic, no partial files, in-memory state is lost.
 
@@ -119,7 +127,7 @@ Informal numbers from a single developer machine (not a benchmark commitment):
 
 Exact numbers depend on embedding dimensionality, CPU cache behaviour, and `ef_construction`/`ef_search` settings. Dedicated benchmarks are deferred to a later pass.
 
-## Stream-pattern filtering (CP-D2-2)
+## Stream-pattern filtering
 
 Vectors indexed via `SimilaritySearchProvider::index` (the trait method) are **not** registered with a stream ID. `SimilarityQuery::stream_pattern` queries will exclude them. Use `HnswProvider::index_with_stream_id` to register stream provenance when you need filtered queries.
 

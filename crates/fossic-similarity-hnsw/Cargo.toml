@@ -4,7 +4,11 @@ version = "1.8.2"
 edition = "2021"
 description = "HNSW-backed SimilaritySearchProvider for fossic"
 license = "MIT"
-publish = false
+repository = "https://github.com/bitmosh/fossic"
+readme = "README.md"
+keywords = ["event-sourcing", "similarity", "hnsw", "vector-search"]
+categories = ["algorithms", "data-structures"]
+include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
 fossic       = { workspace = true }
