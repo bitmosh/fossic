@@ -1,6 +1,6 @@
 [package]
 name = "fossic-similarity-hnsw"
-version = "1.8.2"
+version = "1.8.3"
 edition = "2021"
 description = "HNSW-backed SimilaritySearchProvider for fossic"
 license = "MIT"
@@ -11,7 +11,7 @@ categories = ["algorithms", "data-structures"]
 include = ["src/**/*.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [dependencies]
-fossic       = { workspace = true }
+fossic       = { workspace = true, version = "1.8.3" }
 hnsw_rs      = "0.3"
 parking_lot  = { workspace = true }
 serde        = { workspace = true }

@@ -1,6 +1,6 @@
 {
   "name": "fossic",
-  "version": "1.8.2",
+  "version": "1.8.3",
   "author": "Ryan Johnson <https://github.com/bitmosh>",
   "description": "Local-first event sourcing library — Node.js binding",
   "main": "index.js",

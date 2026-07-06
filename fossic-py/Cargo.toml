@@ -11,8 +11,8 @@ name = "_fossic"
 crate-type = ["cdylib"]
 
 [dependencies]
-fossic                 = { workspace = true }
-fossic-similarity-hnsw = { workspace = true }
+fossic                 = { workspace = true, version = "1.8.3" }
+fossic-similarity-hnsw = { workspace = true, version = "1.8.3" }
 pyo3                   = { version = "0.29", features = ["extension-module"] }
 crossbeam-channel = { workspace = true }
 serde_json        = { workspace = true }

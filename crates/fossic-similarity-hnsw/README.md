@@ -8,8 +8,8 @@ Enables semantic search over fossic event payloads at 50k–500k vector scale. W
 
 ```toml
 [dependencies]
-fossic = "1.8.2"
-fossic-similarity-hnsw = "1.8.2"
+fossic = "1.8.3"
+fossic-similarity-hnsw = "1.8.3"
 ```
 
 ## Quick start (Rust)
