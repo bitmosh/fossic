@@ -1,5 +1,6 @@
 use fossic::StoredEvent;
-use napi::threadsafe_function::{ErrorStrategy, ThreadsafeFunction, ThreadsafeFunctionCallMode};
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
+use napi::Status;
 use napi_derive::napi;
 
 use crate::types::StoredEventJs;
@@ -19,8 +20,9 @@ use crate::types::StoredEventJs;
 pub struct FossicSubscription {
     handle: Option<fossic::SubscriptionHandle>,
     /// Sender side used to register pending JS callbacks with the dispatcher.
-    pending_tx:
-        crossbeam_channel::Sender<ThreadsafeFunction<Option<StoredEventJs>, ErrorStrategy::Fatal>>,
+    pending_tx: crossbeam_channel::Sender<
+        ThreadsafeFunction<Option<StoredEventJs>, (), Option<StoredEventJs>, Status, false>,
+    >,
     closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -31,7 +33,7 @@ impl FossicSubscription {
         closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
     ) -> Self {
         let (pending_tx, pending_rx) = crossbeam_channel::unbounded::<
-            ThreadsafeFunction<Option<StoredEventJs>, ErrorStrategy::Fatal>,
+            ThreadsafeFunction<Option<StoredEventJs>, (), Option<StoredEventJs>, Status, false>,
         >();
 
         let closed_clone = closed.clone();
@@ -56,7 +58,7 @@ impl FossicSubscription {
     #[napi]
     pub fn raw_next(
         &self,
-        callback: ThreadsafeFunction<Option<StoredEventJs>, ErrorStrategy::Fatal>,
+        callback: ThreadsafeFunction<Option<StoredEventJs>, (), Option<StoredEventJs>, Status, false>,
     ) {
         use std::sync::atomic::Ordering;
         if self.closed.load(Ordering::Acquire) {
@@ -95,7 +97,7 @@ impl FossicSubscription {
 fn dispatcher_loop(
     rx: crossbeam_channel::Receiver<StoredEvent>,
     pending_rx: crossbeam_channel::Receiver<
-        ThreadsafeFunction<Option<StoredEventJs>, ErrorStrategy::Fatal>,
+        ThreadsafeFunction<Option<StoredEventJs>, (), Option<StoredEventJs>, Status, false>,
     >,
     closed: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) {
