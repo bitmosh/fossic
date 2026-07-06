@@ -58,7 +58,13 @@ impl FossicSubscription {
     #[napi]
     pub fn raw_next(
         &self,
-        callback: ThreadsafeFunction<Option<StoredEventJs>, (), Option<StoredEventJs>, Status, false>,
+        callback: ThreadsafeFunction<
+            Option<StoredEventJs>,
+            (),
+            Option<StoredEventJs>,
+            Status,
+            false,
+        >,
     ) {
         use std::sync::atomic::Ordering;
         if self.closed.load(Ordering::Acquire) {
