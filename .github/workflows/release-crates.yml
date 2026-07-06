@@ -22,7 +22,7 @@ jobs:
     name: Verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install system deps (Tauri 2)
         run: |
           sudo apt-get update
@@ -99,24 +99,20 @@ jobs:
       id-token: write   # required for OIDC trusted publishing
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-
       - name: Authenticate with crates.io via OIDC
         uses: rust-lang/crates-io-auth-action@v1
         id: auth
-
       - name: Publish fossic
         run: cargo publish -p fossic --token "${{ steps.auth.outputs.token }}"
-
       - name: Wait for propagation
         run: |
           echo "Waiting 60 seconds for crates.io index propagation..."
           sleep 60
-
       - name: Verify fossic is live
         run: |
           curl -s -H "User-Agent: bitmosh-fossic-release (github.com/bitmosh)" \
@@ -141,7 +137,7 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install system deps (Tauri 2)
         run: |
           sudo apt-get update
@@ -152,19 +148,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-
       - name: Authenticate with crates.io via OIDC
         uses: rust-lang/crates-io-auth-action@v1
         id: auth
-
       - name: Publish fossic-tauri
         run: cargo publish -p fossic-tauri --token "${{ steps.auth.outputs.token }}"
-
       - name: Wait for propagation
         run: |
           echo "Waiting 60 seconds for crates.io index propagation..."
           sleep 60
-
       - name: Verify fossic-tauri is live
         run: |
           curl -s -H "User-Agent: bitmosh-fossic-release (github.com/bitmosh)" \
@@ -188,7 +180,7 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       # No Tauri deps needed — this crate doesn't depend on fossic-tauri
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2

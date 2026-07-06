@@ -20,7 +20,7 @@ jobs:
     name: SQLite WAL payload sweep (40 KB)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Preflight — bench script exists
         run: |
           if [ ! -f benchmarks/sqlite_wal_payload_sweep.py ]; then
@@ -31,7 +31,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -90,7 +90,7 @@ jobs:
 
       - name: Upload bench report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: bench-report-${{ github.run_id }}
           path: benchmarks/results/bench_run.json

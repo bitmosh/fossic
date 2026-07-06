@@ -19,7 +19,7 @@ jobs:
     name: Workspace Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install system deps (Tauri 2)
         run: |
           sudo apt-get update
@@ -38,7 +38,7 @@ jobs:
     name: Test (fossic)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install system deps (Tauri 2)
         run: |
           sudo apt-get update
@@ -57,7 +57,7 @@ jobs:
     name: CCE Vectors
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -70,7 +70,7 @@ jobs:
     name: Clippy (fossic)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install system deps (Tauri 2)
         run: |
           sudo apt-get update
@@ -91,7 +91,7 @@ jobs:
     name: Format (fossic)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -103,7 +103,7 @@ jobs:
     name: Doc (cargo doc)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install system deps (Tauri 2)
         run: |
           sudo apt-get update
@@ -124,7 +124,7 @@ jobs:
     name: Version Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: All workspace versions agree
         run: |
           versions=$(grep -h '^version' \
@@ -150,12 +150,12 @@ jobs:
     name: Python Tests (fossic-py)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -183,7 +183,7 @@ jobs:
     name: Node Tests (fossic-node)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install system deps (Tauri 2)
         run: |
           sudo apt-get update
@@ -194,9 +194,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
           cache-dependency-path: fossic-node/package-lock.json
       - name: Install dependencies
