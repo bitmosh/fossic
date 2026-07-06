@@ -6,6 +6,7 @@ build-backend = "maturin"
 name = "fossic"
 version = "1.8.3"
 description = "Local-first event sourcing with content-addressed event identity"
+readme = "README.md"
 authors = [{name = "Ryan Johnson"}]
 license = { text = "MIT" }
 requires-python = ">=3.12,<3.14"

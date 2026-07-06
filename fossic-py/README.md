@@ -1,12 +1,16 @@
 # fossic-py
 
-PyO3 Python bindings for [fossic](../README.md), the local-first event sourcing library.
+PyO3 Python bindings for [fossic](https://crates.io/crates/fossic), the local-first event sourcing library.
 
 The Python API mirrors the Rust API with synchronous semantics. An async wrapper (`fossic_aio`) for asyncio consumers is published separately and wraps these bindings with `asyncio.to_thread`.
 
 ## Installation
 
-Built with [maturin](https://github.com/PyO3/maturin):
+```sh
+pip install fossic
+```
+
+Development install with [maturin](https://github.com/PyO3/maturin):
 
 ```sh
 pip install maturin
@@ -18,6 +22,7 @@ maturin build --release  # build a wheel
 
 ```python
 import os
+
 from fossic import Store, Append, ReadQuery, OpenOptions, SubscriptionMode
 
 # fossic does not expand tilde paths — expand before calling Store.open.
@@ -29,17 +34,17 @@ store = Store.open(
     ),
 )
 
-store.declare_stream("cerebra/lattice/abc123", declared_by="cerebra")
+store.declare_stream("docs/embeddings/abc123", declared_by="my-app")
 
 event_id = store.append(Append(
-    stream_id="cerebra/lattice/abc123",
+    stream_id="docs/embeddings/abc123",
     event_type="MemoryRecordCommitted",
     type_version=1,
     payload={"content_hash": "...", "source": "..."},
 ))
 
 events = store.read_range(ReadQuery(
-    stream_id="cerebra/lattice/abc123",
+    stream_id="docs/embeddings/abc123",
     branch="main",
     from_version=0,
 ))
@@ -47,11 +52,11 @@ events = store.read_range(ReadQuery(
 
 ## Subscription delivery
 
-Callbacks run on a Python-owned worker thread (not a Rust-spawned thread). This preserves `threading.local` state, asyncio contextvars, and logging context. See §4.2 of `docs/implement/FOSSIC_V1_SPEC.md` for the full explanation.
+Callbacks run on a Python-owned worker thread (not a Rust-spawned thread). This preserves `threading.local` state, asyncio contextvars, and logging context.
 
 ```python
 with store.subscribe(
-    stream_pattern="cerebra/lattice/*",
+    stream_pattern="docs/embeddings/*",
     mode=SubscriptionMode.post_commit(queue_size=1024),
 ) as sub:
     for event in sub:
@@ -70,7 +75,7 @@ with store.subscribe(
 from fossic import Store, ReadQuery, ReadOutcome, TruncationCursor
 
 outcome = store.read_range_bounded(
-    ReadQuery(stream_id="cerebra/lattice/session_42"),
+    ReadQuery(stream_id="docs/embeddings/session_42"),
     max_results=1000,
 )
 
@@ -82,13 +87,14 @@ elif outcome.is_truncated:
     # outcome.next_cursor: TruncationCursor | None
     if outcome.next_cursor:
         next_page = store.read_range_bounded(
-            ReadQuery(stream_id="cerebra/lattice/session_42"),
+            ReadQuery(stream_id="docs/embeddings/session_42"),
             max_results=1000,
             cursor=outcome.next_cursor,
         )
 ```
 
 Properties:
+
 - `.results` — `list[StoredEvent]`, always present
 - `.is_truncated` — `bool`
 - `.complete` — `bool` (complement of `is_truncated`)
@@ -128,7 +134,7 @@ SamplingMode.adaptive(target_count=200)
 Each `__next__()` call fetches a batch of 100 events from the store and releases the read-pool connection before returning. Use standard `for` loops:
 
 ```python
-for event in store.read_range_iter(ReadQuery(stream_id="cerebra/lattice/session_42")):
+for event in store.read_range_iter(ReadQuery(stream_id="docs/embeddings/session_42")):
     process(event)
 
 for event in store.walk_causation_iter(
@@ -156,13 +162,13 @@ store.walk_causation_iter(start, direction="forward", max_depth=100,
     sampling=None) -> CausationIter
 ```
 
-### OpenOptions note (CP-FOSSIC-3)
+### OpenOptions store-level defaults
 
-`default_max_results` and `default_max_bytes` store-level defaults are **not yet exposed** in the Python `OpenOptions`. Per-call limits work; if both are absent, the Rust layer applies no budget (unbounded behavior). This will be resolved in a follow-up pass.
+`default_max_results` and `default_max_bytes` store-level defaults are not yet exposed in the Python `OpenOptions`. Per-call limits work; if both are absent, the Rust layer applies no budget (unbounded behavior). This will be addressed in a follow-up.
 
 ## Similarity search (HNSW)
 
-Wire in vector similarity via `fossic.similarity.HnswProvider` — backed by the `fossic-similarity-hnsw` Rust crate:
+Wire in vector similarity via `fossic.similarity.HnswProvider` — backed by the [fossic-similarity-hnsw](https://crates.io/crates/fossic-similarity-hnsw) Rust crate:
 
 ```python
 from fossic.similarity import HnswProvider, SimilarityQuery
@@ -171,10 +177,10 @@ from fossic.similarity import HnswProvider, SimilarityQuery
 provider = HnswProvider("store.db", dimensions=1024)
 
 # Index an event with its stream ID for stream-pattern filtering.
-provider.index_with_stream_id(event_id_bytes, "cerebra/lattice/abc", embedding)
+provider.index_with_stream_id(event_id_bytes, "docs/embeddings/abc", embedding)
 
 # Query k nearest neighbours.
-sq = SimilarityQuery(embedding=query_vec, k=10, stream_pattern="cerebra/lattice/*")
+sq = SimilarityQuery(embedding=query_vec, k=10, stream_pattern="docs/embeddings/*")
 for hit in provider.query(sq.as_dict()):
     print(hit["event_id"].hex(), hit["score"])
 
@@ -204,13 +210,13 @@ from fossic import HnswProvider, SimilarityQuery
 | `stream_filter_fudge_factor` | 2 | Candidate expansion for stream-filtered queries |
 | `quiescence_window_ms` | 2 000 | Idle window before `schedule_save` fires; lower in tests |
 
-See [`crates/fossic-similarity-hnsw/README.md`](../crates/fossic-similarity-hnsw/README.md) for the full Rust API, persistence model, and performance notes.
+See the [fossic-similarity-hnsw](https://crates.io/crates/fossic-similarity-hnsw) crate for the full Rust API, persistence model, and performance notes.
 
 ## Requirements
 
 - Python 3.12+
 - PyO3 0.29+ (free-threaded Python 3.13+/3.14 supported)
-- Rust stable toolchain
+- Rust stable toolchain (for building from source)
 
 ## License
 
