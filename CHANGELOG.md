@@ -5,6 +5,23 @@ Format: semantic version sections, newest first. Each section links to the pass 
 
 ---
 
+## v1.8.3 (unreleased)
+
+- Restructure release automation: split into `release-crates.yml` and `publish.yml`, both using OIDC trusted publishing (no stored secrets)
+- Migrate fossic-node napi CLI config from v1 to v3 schema
+- Publish fossic-similarity-hnsw to crates.io as a first-class crate
+- Add CI system dependencies for Tauri 2 (libwebkit2gtk-4.1-dev and prereqs)
+- Add workspace-wide clippy enforcement, rustdoc build, and workspace version consistency checks
+- Add CONTRIBUTING.md with contributor system dependency guide
+- Fix demo GIF URL for crates.io rendering (raw.githubusercontent.com/HEAD/)
+
+## v1.8.2
+
+- Publish fossic and fossic-tauri to crates.io (initial public releases)
+- Populate crates.io metadata across published crates
+- Add MIT license file
+- Scope root fossic crate package to src/ only via include block
+
 ## v1.8.1-docs — 2026-06-30
 
 ### Changed
