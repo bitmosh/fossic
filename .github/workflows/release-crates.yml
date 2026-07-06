@@ -1,10 +1,12 @@
 name: Release to crates.io
 
 # Triggered by version tags: v0.1.0, v1.2.3, etc.
+# workflow_dispatch runs only the verify job (dry-run — no publishes).
 on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
 
 # Top-level permissions minimal; job-level permissions grant only what's needed.
 permissions:
@@ -21,10 +23,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install system deps (glib for tauri)
+      - name: Install system deps (Tauri 2)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev pkg-config
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -34,6 +38,10 @@ jobs:
 
       - name: Tag ↔ Cargo.toml version check
         run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual dispatch — skipping tag/version check"
+            exit 0
+          fi
           TAG="${GITHUB_REF_NAME#v}"
           CRATE_VER=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
           if [ "$TAG" != "$CRATE_VER" ]; then
@@ -44,6 +52,10 @@ jobs:
 
       - name: Tag ↔ fossic-tauri version check
         run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual dispatch — skipping tag/version check"
+            exit 0
+          fi
           TAG="${GITHUB_REF_NAME#v}"
           TAURI_VER=$(grep '^version' crates/fossic-tauri/Cargo.toml | head -1 | cut -d'"' -f2)
           if [ "$TAG" != "$TAURI_VER" ]; then
@@ -59,6 +71,8 @@ jobs:
         run: cargo fmt --check
 
       - name: cargo test --all-features
+        # Test scope is intentionally root fossic only. Workspace-wide tests
+        # are verified in ci.yml before tag push (see release preconditions).
         run: cargo test --all-features
 
       - name: CCE vectors
@@ -72,12 +86,13 @@ jobs:
       # It's verified via cargo package --list instead, which doesn't require
       # registry resolution.
       - name: Package check for fossic-tauri
-        run: cargo package --list -p fossic-tauri > /dev/null
+        run: cargo package --list -p fossic-tauri
 
   # ── 2. Publish fossic (root) ──────────────────────────────────────────────────
   publish-fossic:
     name: Publish fossic to crates.io
     needs: verify
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: crates-io
     permissions:
@@ -85,10 +100,6 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Install system deps (glib for tauri workspace transitive)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -119,10 +130,11 @@ jobs:
           fi
           echo "fossic $MAX_VER verified live on crates.io"
 
-  # ── 3. Publish fossic-tauri (depends on fossic being live) ────────────────────
+  # ── 3. Publish fossic-tauri and fossic-similarity-hnsw (parallel) ─────────────
   publish-fossic-tauri:
     name: Publish fossic-tauri to crates.io
     needs: publish-fossic
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: crates-io
     permissions:
@@ -130,10 +142,12 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Install system deps (glib for tauri)
+      - name: Install system deps (Tauri 2)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev pkg-config
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -163,3 +177,41 @@ jobs:
             exit 1
           fi
           echo "fossic-tauri $MAX_VER verified live on crates.io"
+
+  publish-fossic-similarity-hnsw:
+    name: Publish fossic-similarity-hnsw to crates.io
+    needs: publish-fossic
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: crates-io
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      # No Tauri deps needed — this crate doesn't depend on fossic-tauri
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - name: Authenticate with crates.io via OIDC
+        uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+      - name: Publish fossic-similarity-hnsw
+        run: cargo publish -p fossic-similarity-hnsw --token "${{ steps.auth.outputs.token }}"
+      - name: Wait for propagation
+        run: |
+          echo "Waiting 60 seconds for crates.io index propagation..."
+          sleep 60
+      - name: Verify fossic-similarity-hnsw is live
+        run: |
+          curl -s -H "User-Agent: bitmosh-fossic-release (github.com/bitmosh)" \
+            "https://crates.io/api/v1/crates/fossic-similarity-hnsw" > /tmp/hnsw.json
+          MAX_VER=$(jq -r '.crate.max_version' /tmp/hnsw.json)
+          TAG="${GITHUB_REF_NAME#v}"
+          if [ "$MAX_VER" != "$TAG" ]; then
+            echo "::error::fossic-similarity-hnsw max_version on crates.io is $MAX_VER, expected $TAG"
+            cat /tmp/hnsw.json
+            exit 1
+          fi
+          echo "fossic-similarity-hnsw $MAX_VER verified live on crates.io"
