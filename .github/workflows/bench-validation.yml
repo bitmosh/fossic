@@ -2,9 +2,10 @@ name: Bench Validation
 
 on:
   workflow_dispatch:
-  schedule:
-    # Run every Monday at 03:00 UTC (before business hours).
-    - cron: "0 3 * * 1"
+  # schedule:
+  #   # Disabled — benchmarks/sqlite_wal_payload_sweep.py not yet implemented.
+  #   # Re-enable once the script lands and baseline.json is established.
+  #   - cron: "0 3 * * 1"
 
 permissions:
   contents: read
@@ -20,6 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Preflight — bench script exists
+        run: |
+          if [ ! -f benchmarks/sqlite_wal_payload_sweep.py ]; then
+            echo "Bench script not implemented. See CONTRIBUTING.md."
+            exit 78  # neutral — marks skipped rather than failed
+          fi
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
