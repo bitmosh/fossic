@@ -1,9 +1,9 @@
 # cibuildwheel configuration for fossic-py
-# 15 wheels: Python 3.11/3.12/3.13 × 5 platforms
+# 10 wheels: Python 3.12/3.13 × 5 platforms
 # Run via: cibuildwheel --config-file .cibuildwheel.toml fossic-py/
 
-# Build CPython 3.11–3.13 only; skip PyPy and musl.
-build = ["cp311-*", "cp312-*", "cp313-*"]
+# Build CPython 3.12–3.13 only (matches pyproject.toml >=3.12,<3.14); skip PyPy and musl.
+build = ["cp312-*", "cp313-*"]
 skip  = ["pp*", "*-musllinux_*"]
 
 # Smoke test: open a store, append one event, read it back.
