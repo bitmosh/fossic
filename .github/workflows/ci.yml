@@ -20,10 +20,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install system deps (glib for tauri)
+      - name: Install system deps (Tauri 2)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev pkg-config
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -37,10 +39,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install system deps (glib for tauri)
+      - name: Install system deps (Tauri 2)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev pkg-config
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -67,18 +71,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install system deps (glib for tauri)
+      - name: Install system deps (Tauri 2)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev pkg-config
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
-      - name: cargo clippy -D warnings
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: cargo clippy --workspace -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   # ── Rust: fmt ─────────────────────────────────────────────────────────────────
   fmt:
@@ -91,6 +97,53 @@ jobs:
           components: rustfmt
       - name: cargo fmt --check
         run: cargo fmt --check
+
+  # ── Rust: doc ─────────────────────────────────────────────────────────────────
+  doc:
+    name: Doc (cargo doc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install system deps (Tauri 2)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+      - name: cargo doc --workspace --no-deps
+        run: cargo doc --workspace --no-deps
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+  # ── Version consistency ───────────────────────────────────────────────────────
+  version-check:
+    name: Version Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: All workspace versions agree
+        run: |
+          versions=$(grep -h '^version' \
+            Cargo.toml \
+            fossic-py/Cargo.toml \
+            fossic-py/pyproject.toml \
+            crates/fossic-tauri/Cargo.toml \
+            crates/fossic-similarity-hnsw/Cargo.toml \
+            fossic-node/Cargo.toml \
+            | cut -d'"' -f2 | sort -u)
+          node_ver=$(grep '"version"' fossic-node/package.json | head -1 | cut -d'"' -f4)
+          count=$(printf '%s\n' "$versions" | wc -l)
+          if [ "$count" -ne 1 ] || [ "$versions" != "$node_ver" ]; then
+            echo "Version mismatch:"
+            echo "Cargo/pyproject versions: $versions"
+            echo "fossic-node/package.json: $node_ver"
+            exit 1
+          fi
+          echo "All versions agree: $versions"
 
   # ── Python: pytest (fossic-py) ────────────────────────────────────────────────
   python-tests:
@@ -131,10 +184,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install system deps (glib for tauri workspace transitive)
+      - name: Install system deps (Tauri 2)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev pkg-config
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+            librsvg2-dev libssl-dev pkg-config
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
