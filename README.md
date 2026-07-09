@@ -1,10 +1,16 @@
 # fossic
 
+[![Crates.io](https://img.shields.io/crates/v/fossic.svg)](https://crates.io/crates/fossic)
+[![PyPI](https://img.shields.io/pypi/v/fossic.svg)](https://pypi.org/project/fossic/)
+[![Downloads](https://img.shields.io/crates/d/fossic.svg)](https://crates.io/crates/fossic)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![CI](https://github.com/bitmosh/fossic/actions/workflows/ci.yml/badge.svg)](https://github.com/bitmosh/fossic/actions/workflows/ci.yml)
+
 Rust event sourcing library that gives every event a deterministic BLAKE3 identity. Append the same event twice: one row stored. Replay deterministically without a coordinator.
 
 Events are identified by a deterministic BLAKE3 hash of `(event_type, type_version, causation_id, CCE(payload))`. Two identical events at the same causal position produce the same ID, giving idempotent append semantics without a distributed coordinator. Storage is a single SQLite file in WAL mode — no daemon, no network port, no separate server.
 
-**Current version:** v1.8.2 (public-facing presentation pass)  
+**Current version:** v1.8.3  
 **Status:** Active development
 
 ---
@@ -149,10 +155,9 @@ Items grounded in open findings, tracked TODOs, and documented gaps as of v1.8.1
 
 ## Part of the Lattica ecosystem
 
-Fossic is the event substrate for [Lattica](<!-- provisional, sync with canonical ecosystem doc -->), alongside Cerebra, LumaWeave, Policy Scout, and AI Stack.
-
+Fossic is the event substrate for [Lattica](https://github.com/bitmosh/lattica), the local-first observability hub, alongside [Cerebra](https://github.com/bitmosh/cerebra) (cognitive runtime), [LumaWeave](https://github.com/bitmosh/lumaweave) (graph visualization), and [Policy Scout](https://github.com/bitmosh/policy-scout) (safety harness).
 ---
 
 ## License
 
-Apache-2.0 — see [`LICENSE`](LICENSE) for the full text.
+Apache-2.0 — see [`LICENSE`](LICENSE) for the full text and [`NOTICE`](NOTICE) for attribution.
