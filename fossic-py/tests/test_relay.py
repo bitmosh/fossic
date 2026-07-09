@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for relay primitives: _hub_stream_id, _translate_causation_id,
 relay_append, RelayAgent.relay_event."""
 

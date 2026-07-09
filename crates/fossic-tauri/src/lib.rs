@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Tauri 2 IPC companion crate for fossic.
 //!
 //! Register all fossic IPC commands by adding the plugin to your Tauri builder:

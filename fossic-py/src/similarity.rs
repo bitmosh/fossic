@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use crate::errors::to_py_err;
 use fossic::{
     Error, EventId, OpenOptions, SimilarityQuery, SimilaritySearchProvider, Store, TaskPriority,

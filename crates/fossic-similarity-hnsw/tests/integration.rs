@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::{
     BacklogTask, EventId, OpenOptions, SimilarityQuery, SimilaritySearchProvider, Store, TaskKind,
     TaskPriority,

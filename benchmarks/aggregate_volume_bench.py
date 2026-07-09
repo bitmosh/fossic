@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """
 Aggregate Volume Benchmark — fossic v1.0-rc.1 Phase 6 prerequisite.
 

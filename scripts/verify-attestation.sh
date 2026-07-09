@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Verify SLSA-3 provenance for a fossic release artifact using slsa-verifier.
 #
 # Requires: slsa-verifier (https://github.com/slsa-framework/slsa-verifier)

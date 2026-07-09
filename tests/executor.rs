@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::{Append, BacklogTask, OpenOptions, Store, TaskKind, TaskPriority};
 use std::sync::{
     atomic::{AtomicBool, AtomicU32, Ordering},

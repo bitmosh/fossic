@@ -3,7 +3,7 @@ name = "fossic-node"
 version = "1.8.3"
 edition = "2021"
 description = "napi-rs Node.js bindings for fossic"
-license = "MIT"
+license = "Apache-2.0"
 publish = false
 
 [lib]

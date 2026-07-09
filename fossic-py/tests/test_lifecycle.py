@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for store open / declare_stream / stream registry."""
 
 from __future__ import annotations

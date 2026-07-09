@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use crate::{error::Error, types::EventId};
 
 /// A similarity search backend. Implementations index events and answer k-NN queries.

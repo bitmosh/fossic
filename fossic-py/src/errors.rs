@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::Error as FossicError;
 use pyo3::prelude::*;
 

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::{
     Error, EventId, OpenOptions, SimilarityHit, SimilarityQuery, SimilaritySearchProvider, Store,
 };

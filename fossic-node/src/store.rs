@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::{ReadQuery, Store as FossicStore, SubscribeQuery, SubscriptionMode, WalkDirection};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;

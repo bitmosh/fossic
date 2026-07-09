@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for PostCommit subscriptions and the Python worker thread."""
 
 from __future__ import annotations

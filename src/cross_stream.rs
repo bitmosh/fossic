@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use crate::{
     error::Error,
     read::{row_to_event, PREFIXED_SELECT_COLS, SELECT_COLS},

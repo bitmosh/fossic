@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use crate::{cce::derive_event_id, schema::now_us, types::EventId};
 use rusqlite::{Connection, TransactionBehavior};
 use std::path::Path;

@@ -1,4 +1,5 @@
 #!/home/boop/.venv/bin/python3
+# SPDX-License-Identifier: Apache-2.0
 """
 SQLite WAL write-contention benchmark for Fossic.
 

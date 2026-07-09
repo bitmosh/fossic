@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for payload transforms (fires at append time, not read time).
 
 The transform callable signature is ``(event_type: str, payload: dict) -> dict``.

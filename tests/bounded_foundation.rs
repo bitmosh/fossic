@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::{
     Append, BudgetKind, OpenOptions, ReadOutcome, SamplingMode, Store, TruncationCursor,
     TruncationReason,

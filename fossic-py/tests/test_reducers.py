@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for Python-layer reducer registration and state folding."""
 
 from __future__ import annotations

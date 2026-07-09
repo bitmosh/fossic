@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 /// Distance metric used to compare embeddings in the HNSW index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DistanceMetric {

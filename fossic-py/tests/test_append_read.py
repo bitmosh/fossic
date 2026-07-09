@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for append / read_range / read_one / external_id / CCE dedup."""
 
 from __future__ import annotations

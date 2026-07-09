@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { mkdtempSync, rmSync } from 'node:fs'

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Build all 5 fossic-node prebuilt .node addons for the current platform.
 # Cross-compilation targets require the appropriate linker (see below).
 #

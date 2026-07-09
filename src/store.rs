@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use crate::system_stream::SystemStreamWriter;
 use parking_lot::RwLock as ParkingRwLock;
 use std::{

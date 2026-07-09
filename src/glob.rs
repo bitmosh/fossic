@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use crate::error::Error;
 
 /// Returns `true` if `stream_id` matches the glob `pattern`.

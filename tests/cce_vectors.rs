@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::cce::{encode_bytes, encode_value};
 
 #[derive(serde::Deserialize)]

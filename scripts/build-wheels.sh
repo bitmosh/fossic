@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Build all 15 fossic-py wheels locally using cibuildwheel.
 # Requires: Docker (for Linux wheels), Python 3.x with cibuildwheel installed.
 #

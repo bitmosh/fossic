@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Cursor API — lightweight consumer progress pointers.
 //!
 //! Cursors are scoped by `(consumer_id, stream_id, branch)` and store the last

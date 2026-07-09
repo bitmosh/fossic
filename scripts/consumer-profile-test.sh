@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
 # Run 5 synthetic consumer profiles against a local fossic store.
 # Each profile exercises a distinct access pattern and prints timing.
 #

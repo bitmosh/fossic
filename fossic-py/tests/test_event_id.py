@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Python-level verification that compute_event_id() matches stored event IDs.
 
 PD-007: expose derive_event_id via PyO3.  These tests confirm the binding is

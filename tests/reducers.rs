@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::{Append, Error, EventId, OpenOptions, Reducer, Store};
 use serde::{Deserialize, Serialize};
 

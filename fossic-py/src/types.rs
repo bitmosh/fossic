@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::{
     Append, BranchInfo, BranchSegment, CheckpointMode, CreateBranch, EncryptionMode, EventId,
     FirstOpenPolicy, OpenOptions, ReadOutcome, ReadQuery, SamplingMode, SnapshotInfo, StoredEvent,

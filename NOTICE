@@ -1,0 +1,16 @@
+Fossic
+Copyright 2026 Ryan Johnson
+
+This product includes software developed by Ryan Johnson (https://bitmosh.dev).
+
+---
+
+Third-party dependencies and their licenses are documented in the project's
+manifest files (Cargo.toml, pyproject.toml, package.json) and can be inspected
+via standard tooling:
+
+- Rust:    `cargo license` or `cargo about`
+- Python:  `pip-licenses`
+- Node:    `license-checker`
+
+See CONTRIBUTING.md for information on how contributions are licensed.

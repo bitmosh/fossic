@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use crate::types::StoredEvent;
 use parking_lot::RwLock;
 use std::collections::HashMap;

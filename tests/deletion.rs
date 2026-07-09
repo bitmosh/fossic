@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::{Append, OpenOptions, ReadQuery, Store};
 
 const PURGE_CONFIRM: &str = "I understand this breaks replay-from-zero";

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use crate::error::Error;
 
 /// A transform that mutates a msgpack-encoded payload before CCE encoding.

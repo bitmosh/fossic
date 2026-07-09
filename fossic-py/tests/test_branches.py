@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for branch creation, promotion, dead-end marking, and chain resolution."""
 
 from __future__ import annotations

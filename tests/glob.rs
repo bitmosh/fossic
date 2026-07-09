@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::glob::{matches, specificity_score, validate_pattern};
 
 // ── matches ───────────────────────────────────────────────────────────────────

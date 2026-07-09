@@ -1,4 +1,5 @@
 #![cfg(feature = "test-helpers")]
+// SPDX-License-Identifier: Apache-2.0
 
 use fossic::{Append, OpenOptions, Store};
 use tauri::Manager;

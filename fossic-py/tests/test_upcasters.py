@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for upcaster chain registration and payload transformation on read."""
 
 from __future__ import annotations

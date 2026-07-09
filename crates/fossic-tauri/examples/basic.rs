@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 //! Minimal example showing how to embed fossic in a Tauri 2 app.
 //!
 //! Run from the workspace root:

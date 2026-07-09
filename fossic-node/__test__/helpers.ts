@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 import type { AppendJs } from '../index.d.ts'
 
 // ── Sequence counter ──────────────────────────────────────────────────────────

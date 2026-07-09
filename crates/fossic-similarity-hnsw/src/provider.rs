@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use std::{
     collections::HashMap,
     io::{Read as IoRead, Write as IoWrite},

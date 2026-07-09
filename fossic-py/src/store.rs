@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use crossbeam_channel as cc;
 use fossic::{
     Aggregate, AggregateQuery, CausationIter, CorrelationIter, Error, PayloadTransform, RangeIter,

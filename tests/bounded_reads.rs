@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::{Append, OpenOptions, ReadOutcome, ReadQuery, Store, TruncationReason};
 
 fn temp_store() -> Store {

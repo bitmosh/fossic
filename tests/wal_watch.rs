@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::StoredEvent;
 use fossic::{Append, OpenOptions, Store, SubscribeQuery, SubscriptionHandler, SubscriptionMode};
 use std::sync::{

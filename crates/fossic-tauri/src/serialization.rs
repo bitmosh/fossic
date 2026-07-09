@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use fossic::{
     BranchInfo, ReadOutcome, SamplingMode, StoredEvent, StreamInfo, TruncationCursor,

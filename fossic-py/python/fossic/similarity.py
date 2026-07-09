@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """
 fossic.similarity — HNSW-backed similarity search for fossic event stores.
 

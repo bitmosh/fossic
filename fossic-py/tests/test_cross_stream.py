@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for cross-stream aggregate queries and multi-stream reads."""
 
 from __future__ import annotations

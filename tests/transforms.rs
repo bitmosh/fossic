@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::{Append, Error, OpenOptions, PayloadTransform, Store};
 
 fn open_tmp() -> (Store, tempfile::TempDir) {

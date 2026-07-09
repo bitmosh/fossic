@@ -8,7 +8,7 @@ version = "1.8.3"
 description = "Local-first event sourcing with content-addressed event identity"
 readme = "README.md"
 authors = [{name = "Ryan Johnson"}]
-license = { text = "MIT" }
+license = "Apache-2.0"
 requires-python = ">=3.12,<3.14"
 dependencies = []
 

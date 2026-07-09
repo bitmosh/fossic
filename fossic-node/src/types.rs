@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::{BranchInfo, ReadOutcome, SnapshotInfo, StoredEvent, StreamInfo, TruncationReason};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;

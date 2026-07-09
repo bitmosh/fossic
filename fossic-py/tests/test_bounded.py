@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Bounded read surface: ReadOutcome, TruncationCursor, SamplingMode, pagination."""
 from __future__ import annotations
 

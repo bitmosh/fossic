@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::{Append, DynReducer, Error, OpenOptions, Store};
 use tempfile::tempdir;
 

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Tests for Store.read_batch() — fetch multiple events by CCE ID."""
 
 from __future__ import annotations

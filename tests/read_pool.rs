@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::{Append, Error, OpenOptions, ReadQuery, Store};
 use std::sync::{Arc, Mutex};
 

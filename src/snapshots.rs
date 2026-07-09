@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use crate::{error::Error, schema::now_us, types::SnapshotInfo};
 use rusqlite::{Connection, OptionalExtension};
 

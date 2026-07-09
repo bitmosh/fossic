@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Python-side integration tests for fossic.similarity.HnswProvider.
 
 Parity coverage against crates/fossic-similarity-hnsw/tests/integration.rs.

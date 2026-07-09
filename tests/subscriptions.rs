@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: Apache-2.0
 use fossic::{
     Append, OpenOptions, ReadQuery, Store, StoredEvent, SubscribeQuery, SubscriptionHandler,
     SubscriptionMode,

@@ -1,0 +1,16 @@
+# GitHub Sponsors: your username; unlocks the "Sponsor this project" button on repos.
+github: [bitmosh]
+
+# Open Collective: replace 'bitmosh' with your actual OC slug once you register.
+# https://opencollective.com/{slug}
+# open_collective: bitmosh
+
+# thanks.dev: the automated dependency-graph funding cascade. Once you register
+# your projects at thanks.dev and enable this line, adopters using thanks.dev
+# will send a share of their monthly funding to you based on how much your work
+# appears in their dependency tree.
+# https://thanks.dev/u/gh/bitmosh
+# thanks_dev: u/gh/bitmosh
+
+# NOTE: uncomment lines above once you've actually registered on each platform.
+# A FUNDING.yml pointing at non-existent pages is worse than no FUNDING.yml.
