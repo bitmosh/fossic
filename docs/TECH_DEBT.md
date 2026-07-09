@@ -9,36 +9,6 @@ field to gauge urgency.
 
 ## Build & tooling
 
-### napi-derive v2 / napi-cli v3 version skew
-
-**Location:** `fossic-node/`
-
-**What it is:** `fossic-node/Cargo.toml` uses `napi = "2"` and
-`napi-derive = "2"`, while `fossic-node/package.json` uses
-`@napi-rs/cli: "^3"`. These major versions have incompatible protocols for
-communicating type-def information between the Rust proc-macro and the
-JS CLI. `fossic-node/build.rs` contains a 4-line bridge that translates
-the CLI v3 env var (`NAPI_TYPE_DEF_TMP_FOLDER`) into the derive v2 env var
-(`TYPE_DEF_TMP_PATH`) so the two toolchains can cooperate.
-
-**Why it exists:** Migrating napi + napi-derive to v3 requires updating
-66 `#[napi]` annotation sites across `fossic-node/src/` because v3 changes
-the attribute API for `Buffer`, `Env`, async patterns, and error handling.
-The bridge is a 4-line workaround; the migration is a multi-hour project
-with real regression risk. fossic-node has no external consumers (not
-published to npm), so the bridge is acceptable pragmatism.
-
-**Cost of leaving:** If either napi-cli or napi-derive changes their env var
-contract in a future release, the bridge silently breaks. Symptom: `npm run build`
-succeeds without warnings, but `index.js` is not generated, and vitest
-suites fail with `Cannot find module '../index.js'`. Recovery requires
-re-diagnosing the version skew.
-
-**Path to fix:** Migrate `fossic-node` to napi v3 + napi-derive v3.
-Per-site update of `#[napi]` attributes following the napi-rs v2 → v3
-migration guide. Then remove the build.rs bridge. Estimate: 2-4 hours
-focused work.
-
 ### fossic-node/index.d.ts historical tracking
 
 **Location:** `fossic-node/index.d.ts`
