@@ -117,3 +117,23 @@ Desktop.ini
 
 # Pass review working directory
 .review/
+# Internal working artifacts — Claude Code sessions, planning docs,
+# per-session notes. These belong in ~/Projects/docs/fossic/ if they
+# need to persist across sessions, not in the repo.
+/docs/_internal/
+/docs/agent/
+/docs/aseptic/
+/docs/coordination/
+/docs/planning/
+/docs/session-notes/
+/AGENTS.md
+/CLAUDE.md
+*.session.md
+
+# Claude Code often creates these — should not land in the repo.
+/POLISH_DEBT.md
+/PROJECT_DIAGNOSTIC.md
+/.claude/
+/.review/
+/cleanup/
+/archive/
